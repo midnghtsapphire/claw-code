@@ -69,7 +69,14 @@ fn push_event_includes_superseded_by_field() {
     // given
     let registry = CommitProvenanceRegistry::new();
     // first commit
-    registry.record_push("sha_old", "feat/fix", "/wt/a", None, lin(&["sha_old"]), None);
+    registry.record_push(
+        "sha_old",
+        "feat/fix",
+        "/wt/a",
+        None,
+        lin(&["sha_old"]),
+        None,
+    );
 
     // when — force push supersedes sha_old
     let event = registry.record_push(
@@ -188,9 +195,7 @@ fn events_for_branch_returns_only_that_branchs_events() {
     // then
     assert_eq!(feat_a.len(), 2);
     assert_eq!(feat_b.len(), 1);
-    assert!(feat_a
-        .iter()
-        .all(|e| e.provenance.branch == "feat/a"));
+    assert!(feat_a.iter().all(|e| e.provenance.branch == "feat/a"));
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -226,16 +231,7 @@ fn push_event_seq_numbers_are_monotonically_increasing() {
 
     // when
     let events: Vec<PushEvent> = (0..6u32)
-        .map(|i| {
-            registry.record_push(
-                format!("sha{i}"),
-                "main",
-                "/wt/seq",
-                None,
-                lin(&[]),
-                None,
-            )
-        })
+        .map(|i| registry.record_push(format!("sha{i}"), "main", "/wt/seq", None, lin(&[]), None))
         .collect();
 
     // then
@@ -321,7 +317,10 @@ fn push_event_display_includes_worktree_branch_and_sha() {
     let s = event.to_string();
 
     // then
-    assert!(s.contains("/wt/display-test"), "display must include worktree: {s}");
+    assert!(
+        s.contains("/wt/display-test"),
+        "display must include worktree: {s}"
+    );
     assert!(s.contains("feat/ui"), "display must include branch: {s}");
     assert!(s.contains("sha99"), "display must include SHA: {s}");
 }
@@ -381,8 +380,22 @@ fn parallel_worktrees_on_same_branch_have_independent_lineages() {
     let registry = CommitProvenanceRegistry::new();
     let branch = "feat/parallel";
 
-    registry.record_push("wt_a_sha1", branch, "/wt/a", None, lin(&["wt_a_sha1"]), None);
-    registry.record_push("wt_b_sha1", branch, "/wt/b", None, lin(&["wt_b_sha1"]), None);
+    registry.record_push(
+        "wt_a_sha1",
+        branch,
+        "/wt/a",
+        None,
+        lin(&["wt_a_sha1"]),
+        None,
+    );
+    registry.record_push(
+        "wt_b_sha1",
+        branch,
+        "/wt/b",
+        None,
+        lin(&["wt_b_sha1"]),
+        None,
+    );
     registry.record_push(
         "wt_a_sha2",
         branch,

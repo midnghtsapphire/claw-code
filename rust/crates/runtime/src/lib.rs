@@ -8,8 +8,8 @@ mod bash;
 pub mod bash_validation;
 mod bootstrap;
 pub mod branch_lock;
-mod compact;
 pub mod commit_provenance;
+mod compact;
 mod config;
 mod conversation;
 mod file_ops;
@@ -37,6 +37,7 @@ pub mod session_control;
 mod sse;
 pub mod stale_branch;
 pub mod summary_compression;
+pub mod swarm_state;
 pub mod task_packet;
 pub mod task_registry;
 pub mod team_cron_registry;
@@ -50,7 +51,8 @@ pub use branch_lock::{
     BranchAcquireOutcome, BranchCollisionEvent, BranchLockEntry, BranchLockRegistry,
 };
 pub use commit_provenance::{
-    CommitLineage, CommitProvenanceRecord, CommitProvenanceRegistry, PushEvent,
+    parse_git_push_output, record_push_from_git_output, CommitLineage, CommitProvenanceRecord,
+    CommitProvenanceRegistry, GitPushRefUpdate, PushEvent,
 };
 pub use compact::{
     compact_session, estimate_session_tokens, format_compact_summary,

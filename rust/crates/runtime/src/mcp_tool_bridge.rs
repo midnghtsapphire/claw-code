@@ -1,5 +1,5 @@
-//! Bridge between MCP tool surface (ListMcpResources, ReadMcpResource, McpAuth, MCP)
-//! and the existing McpServerManager runtime.
+//! Bridge between MCP tool surface (`ListMcpResources`, `ReadMcpResource`, `McpAuth`, `MCP`)
+//! and the existing `McpServerManager` runtime.
 //!
 //! Provides a stateful client registry that tool handlers can use to
 //! connect to MCP servers and invoke their capabilities.
@@ -103,11 +103,13 @@ impl McpToolRegistry {
         );
     }
 
+    #[must_use]
     pub fn get_server(&self, server_name: &str) -> Option<McpServerState> {
         let inner = self.inner.lock().expect("mcp registry lock poisoned");
         inner.get(server_name).cloned()
     }
 
+    #[must_use]
     pub fn list_servers(&self) -> Vec<McpServerState> {
         let inner = self.inner.lock().expect("mcp registry lock poisoned");
         inner.values().cloned().collect()
@@ -125,7 +127,7 @@ impl McpToolRegistry {
                 }
                 Ok(state.resources.clone())
             }
-            None => Err(format!("server '{}' not found", server_name)),
+            None => Err(format!("server '{server_name}' not found")),
         }
     }
 
@@ -133,12 +135,12 @@ impl McpToolRegistry {
         let inner = self.inner.lock().expect("mcp registry lock poisoned");
         let state = inner
             .get(server_name)
-            .ok_or_else(|| format!("server '{}' not found", server_name))?;
+            .ok_or_else(|| format!("server '{server_name}' not found"))?;
 
         if state.status != McpConnectionStatus::Connected {
             return Err(format!(
-                "server '{}' is not connected (status: {})",
-                server_name, state.status
+                "server '{server_name}' is not connected (status: {})",
+                state.status
             ));
         }
 
@@ -147,7 +149,7 @@ impl McpToolRegistry {
             .iter()
             .find(|r| r.uri == uri)
             .cloned()
-            .ok_or_else(|| format!("resource '{}' not found on server '{}'", uri, server_name))
+            .ok_or_else(|| format!("resource '{uri}' not found on server '{server_name}'"))
     }
 
     pub fn list_tools(&self, server_name: &str) -> Result<Vec<McpToolInfo>, String> {
@@ -156,13 +158,13 @@ impl McpToolRegistry {
             Some(state) => {
                 if state.status != McpConnectionStatus::Connected {
                     return Err(format!(
-                        "server '{}' is not connected (status: {})",
-                        server_name, state.status
+                        "server '{server_name}' is not connected (status: {})",
+                        state.status
                     ));
                 }
                 Ok(state.tools.clone())
             }
-            None => Err(format!("server '{}' not found", server_name)),
+            None => Err(format!("server '{server_name}' not found")),
         }
     }
 
@@ -179,6 +181,7 @@ impl McpToolRegistry {
                     .build()
                     .map_err(|error| format!("failed to create MCP tool runtime: {error}"))?;
 
+                #[allow(clippy::await_holding_lock)]
                 runtime.block_on(async move {
                     let response = {
                         let mut manager = manager
@@ -196,8 +199,7 @@ impl McpToolRegistry {
 
                         match (response, shutdown) {
                             (Ok(response), Ok(())) => Ok(response),
-                            (Err(error), Ok(())) | (Err(error), Err(_)) => Err(error),
-                            (Ok(_), Err(error)) => Err(error),
+                            (Err(error), Ok(()) | Err(_)) | (Ok(_), Err(error)) => Err(error),
                         }
                     }?;
 
@@ -238,19 +240,18 @@ impl McpToolRegistry {
         let inner = self.inner.lock().expect("mcp registry lock poisoned");
         let state = inner
             .get(server_name)
-            .ok_or_else(|| format!("server '{}' not found", server_name))?;
+            .ok_or_else(|| format!("server '{server_name}' not found"))?;
 
         if state.status != McpConnectionStatus::Connected {
             return Err(format!(
-                "server '{}' is not connected (status: {})",
-                server_name, state.status
+                "server '{server_name}' is not connected (status: {})",
+                state.status
             ));
         }
 
         if !state.tools.iter().any(|t| t.name == tool_name) {
             return Err(format!(
-                "tool '{}' not found on server '{}'",
-                tool_name, server_name
+                "tool '{tool_name}' not found on server '{server_name}'"
             ));
         }
 
@@ -278,12 +279,13 @@ impl McpToolRegistry {
         let mut inner = self.inner.lock().expect("mcp registry lock poisoned");
         let state = inner
             .get_mut(server_name)
-            .ok_or_else(|| format!("server '{}' not found", server_name))?;
+            .ok_or_else(|| format!("server '{server_name}' not found"))?;
         state.status = status;
         Ok(())
     }
 
     /// Disconnect / remove a server.
+    #[must_use]
     pub fn disconnect(&self, server_name: &str) -> Option<McpServerState> {
         let mut inner = self.inner.lock().expect("mcp registry lock poisoned");
         inner.remove(server_name)

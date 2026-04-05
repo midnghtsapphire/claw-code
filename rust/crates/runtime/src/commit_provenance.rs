@@ -154,10 +154,7 @@ impl std::fmt::Display for PushEvent {
         write!(
             f,
             "PushEvent[seq={}] {}/{} → {}",
-            self.seq,
-            self.provenance.worktree,
-            self.provenance.branch,
-            self.provenance.commit_sha
+            self.seq, self.provenance.worktree, self.provenance.branch, self.provenance.commit_sha
         )
     }
 }
@@ -204,7 +201,10 @@ impl CommitProvenanceRegistry {
         lineage: CommitLineage,
         summary: Option<String>,
     ) -> PushEvent {
-        let mut inner = self.inner.lock().expect("provenance registry lock poisoned");
+        let mut inner = self
+            .inner
+            .lock()
+            .expect("provenance registry lock poisoned");
         inner.seq += 1;
         let event = PushEvent {
             seq: inner.seq,
@@ -266,14 +266,17 @@ impl CommitProvenanceRegistry {
     /// this pair.
     #[must_use]
     pub fn lineage_for(&self, worktree: &str, branch: &str) -> CommitLineage {
-        let inner = self.inner.lock().expect("provenance registry lock poisoned");
+        let inner = self
+            .inner
+            .lock()
+            .expect("provenance registry lock poisoned");
         let mut shas: Vec<String> = Vec::new();
         for event in &inner.events {
             let p = &event.provenance;
             if p.worktree == worktree && p.branch == branch {
                 // Use the lineage stored in the most recent event; it is
                 // cumulative so we only need the last one.
-                shas = p.lineage.0.clone();
+                shas.clone_from(&p.lineage.0);
             }
         }
         CommitLineage(shas)
@@ -283,7 +286,10 @@ impl CommitProvenanceRegistry {
     /// that branch across all worktrees.
     #[must_use]
     pub fn latest_per_branch(&self) -> BTreeMap<String, String> {
-        let inner = self.inner.lock().expect("provenance registry lock poisoned");
+        let inner = self
+            .inner
+            .lock()
+            .expect("provenance registry lock poisoned");
         let mut map: BTreeMap<String, String> = BTreeMap::new();
         for event in &inner.events {
             map.insert(
@@ -303,6 +309,161 @@ impl CommitProvenanceRegistry {
             .events
             .len()
     }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Git push output parsing
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// Parsed result from a single `git push` ref-update line.
+///
+/// `git push` writes one line per ref to stderr in the form:
+/// ```text
+///   <flag> <from>..<to> <from-name> -> <to-name>
+/// ```
+/// or for a forced push:
+/// ```text
+/// + <from>..<to> <from-name> -> <to-name> (forced update)
+/// ```
+/// This struct captures the fields that are relevant for provenance tracking.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitPushRefUpdate {
+    /// The local commit SHA that was pushed (the "to" side of the range).
+    pub commit_sha: String,
+    /// The branch name on the remote (e.g. `refs/heads/feat/x` → `feat/x`).
+    pub branch: String,
+    /// If this was a forced push (`+` flag or `(forced update)` annotation),
+    /// the previous tip SHA that was overwritten (the "from" side of the range).
+    pub superseded_sha: Option<String>,
+}
+
+/// Parse the stderr output of `git push` and extract ref-update information.
+///
+/// Supports the standard push output format:
+/// ```text
+///    <sha1>..<sha2>  <branch> -> <remote>/<branch>
+/// + <sha1>..<sha2>  <branch> -> <remote>/<branch> (forced update)
+/// * [new branch]    <branch> -> <remote>/<branch>
+/// ```
+/// Returns one [`GitPushRefUpdate`] per successfully parsed ref-update line.
+/// Lines that do not match the expected pattern are silently skipped.
+///
+/// # Example
+///
+/// ```rust
+/// use runtime::commit_provenance::parse_git_push_output;
+///
+/// let output = "   abc123..def456  feat/x -> origin/feat/x";
+/// let updates = parse_git_push_output(output);
+/// assert_eq!(updates.len(), 1);
+/// assert_eq!(updates[0].commit_sha, "def456");
+/// assert_eq!(updates[0].branch, "feat/x");
+/// ```
+#[must_use]
+pub fn parse_git_push_output(stderr: &str) -> Vec<GitPushRefUpdate> {
+    let mut updates = Vec::new();
+
+    for line in stderr.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        // Detect forced-push flag (leading `+`) or new-branch (`*`).
+        let (is_forced, rest) = if let Some(r) = trimmed.strip_prefix('+') {
+            (true, r.trim_start())
+        } else if let Some(r) = trimmed.strip_prefix('*') {
+            // New branch — no "from" SHA.
+            let _ = r;
+            continue;
+        } else {
+            (false, trimmed)
+        };
+
+        // rest should now start with "<from_sha>..<to_sha>  <branch> -> ..."
+        let parts: Vec<&str> = rest.split_whitespace().collect();
+        if parts.len() < 3 {
+            continue;
+        }
+
+        // parts[0] = "<from>..<to>" range
+        let range = parts[0];
+        let Some(arrow_pos) = parts.iter().position(|p| *p == "->") else {
+            continue;
+        };
+        // Branch name is the token immediately before "->".
+        if arrow_pos == 0 {
+            continue;
+        }
+        let branch_raw = parts[arrow_pos - 1];
+        // Strip "refs/heads/" prefix if present.
+        let branch = branch_raw
+            .strip_prefix("refs/heads/")
+            .unwrap_or(branch_raw)
+            .to_string();
+
+        // Parse the SHA range.
+        let (superseded_sha, commit_sha) = if let Some((from, to)) = range.split_once("..") {
+            // from may be the zero-SHA for a brand-new branch.
+            let superseded = if from.chars().all(|c| c == '0') || from.is_empty() {
+                None
+            } else {
+                Some(from.to_string())
+            };
+            (if is_forced { superseded } else { None }, to.to_string())
+        } else {
+            // Not a range — skip.
+            continue;
+        };
+
+        if commit_sha.is_empty() {
+            continue;
+        }
+
+        updates.push(GitPushRefUpdate {
+            commit_sha,
+            branch,
+            superseded_sha,
+        });
+    }
+
+    updates
+}
+
+/// Helper: parse `git push` stderr and call
+/// [`CommitProvenanceRegistry::record_push`] for each ref-update, building
+/// the cumulative lineage automatically.
+///
+/// `worktree` is the filesystem path of the worktree that ran `git push`.
+/// `summary` is an optional commit summary line (e.g. the first line of the
+/// commit message).
+///
+/// Returns the list of [`PushEvent`]s that were recorded.
+#[must_use]
+pub fn record_push_from_git_output(
+    registry: &CommitProvenanceRegistry,
+    stderr: &str,
+    worktree: &str,
+    summary: Option<&str>,
+) -> Vec<PushEvent> {
+    let updates = parse_git_push_output(stderr);
+    let mut events = Vec::new();
+
+    for update in updates {
+        let mut lineage = registry.lineage_for(worktree, &update.branch);
+        lineage.push_sha(&update.commit_sha);
+        let event = registry.record_push(
+            &update.commit_sha,
+            &update.branch,
+            worktree,
+            update.superseded_sha,
+            lineage,
+            summary.map(ToOwned::to_owned),
+        );
+        events.push(event);
+    }
+
+    events
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -387,7 +548,14 @@ mod tests {
         let registry = CommitProvenanceRegistry::new();
         registry.record_push("sha1", "main", "/wt/a", None, lineage(&["sha1"]), None);
         registry.record_push("sha2", "main", "/wt/b", None, lineage(&["sha2"]), None);
-        registry.record_push("sha3", "main", "/wt/a", None, lineage(&["sha1", "sha3"]), None);
+        registry.record_push(
+            "sha3",
+            "main",
+            "/wt/a",
+            None,
+            lineage(&["sha1", "sha3"]),
+            None,
+        );
 
         // when
         let events = registry.events_for_worktree("/wt/a");
@@ -521,14 +689,7 @@ mod tests {
 
         // when
         for i in 0..5u32 {
-            registry.record_push(
-                format!("sha{i}"),
-                "main",
-                "/wt/a",
-                None,
-                lineage(&[]),
-                None,
-            );
+            registry.record_push(format!("sha{i}"), "main", "/wt/a", None, lineage(&[]), None);
         }
 
         // then

@@ -10,6 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `rust/crates/runtime/src/swarm_state.rs` — `SwarmStateStore`: atomic save/load of combined `BranchLockRegistry` + `CommitProvenanceRegistry` state to `.claw/swarm-state.json`; `BranchLockRegistry::snapshot()`/`restore_from_snapshot()` (E8-1)
+- `rust/crates/runtime/src/commit_provenance.rs` — `parse_git_push_output`, `record_push_from_git_output`, `GitPushRefUpdate`: parse `git push` stderr ref-update lines and auto-populate provenance registry; forced-push detects superseded SHA (E8-2)
+- `rust/crates/runtime/tests/swarm_e2e.rs` — 12 end-to-end swarm simulation tests: two workers competing for one branch (collision + provenance), three-worker race, independent branches, save/restore round-trips, lineage preservation, forced-push superseded-by, git push output integration (E8-3)
+
+### Fixed
+- `rust/crates/runtime/src/*` — resolved all clippy warnings in runtime lib: removed unused imports (`session_control.rs`), inlined format strings (`mcp_tool_bridge.rs`, `permission_enforcer.rs`, `recovery_recipes.rs`), added `#[must_use]` to 25 public API methods across `branch_lock.rs`, `lsp_client.rs`, `mcp_tool_bridge.rs`, `permission_enforcer.rs`, `stale_branch.rs`, `task_registry.rs`, `team_cron_registry.rs`, suppressed structural lints with `#[allow]` where a fix would require significant refactoring, fixed `clone_from` in `commit_provenance.rs`, `is_none_or` in `task_registry.rs`, `map_or` in `mcp_lifecycle_hardened.rs`, unnested or-pattern in `mcp_tool_bridge.rs`, `?`-operator in `worker_boot.rs`, redundant closure in `worker_boot.rs` (E8-4)
+
 - `rust/crates/runtime/src/commit_provenance.rs` — `CommitProvenanceRegistry`, `CommitProvenanceRecord`, `PushEvent`, `CommitLineage`: push events include branch, worktree, superseded-by, and oldest-first commit lineage; serde-stable, thread-safe (E7-2)
 - `rust/crates/runtime/tests/commit_provenance.rs` — 16 integration tests: push event field coverage, superseded-by tracking, lineage accumulation, worktree/branch filtering, latest-per-branch map, monotonic seq numbers, JSON round-trip, Display formatting, empty registry, event count, parallel worktrees on same branch, superseded-by omitted from JSON when absent, standalone record serialization (E7-2)
 - `docs/claw-code/RETROSPECTIVE.md` — Sprint 7 close-out retrospective: velocity summary, acceptance review, what-went-well, improvement areas, docs audit, Definition-of-Done audit, Epic 8 action items (retrospective hardening)

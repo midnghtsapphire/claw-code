@@ -69,7 +69,9 @@ fn second_worker_receives_collision_event_with_complete_fields() {
         outcome.is_collision(),
         "second acquire on a held branch must be a collision"
     );
-    let event = outcome.collision_event().expect("collision event should be present");
+    let event = outcome
+        .collision_event()
+        .expect("collision event should be present");
     assert_eq!(event.branch, "feat/shared");
     assert_eq!(event.holder_worker_id, "worker_01");
     assert_eq!(event.challenger_worker_id, "worker_02");
@@ -146,7 +148,10 @@ fn worker_cannot_release_branch_it_does_not_hold() {
     assert!(result.is_err(), "wrong-worker release must be rejected");
     let msg = result.unwrap_err();
     assert!(msg.contains("worker_01"), "error should name the holder");
-    assert!(msg.contains("worker_02"), "error should name the challenger");
+    assert!(
+        msg.contains("worker_02"),
+        "error should name the challenger"
+    );
     // lock is still held by worker_01
     assert!(registry.is_locked("feat/guarded"));
 }
@@ -224,7 +229,10 @@ fn branch_can_be_reacquired_by_new_worker_after_release() {
     let outcome = registry.try_acquire("feat/sequential", "worker_02");
 
     // then
-    assert!(outcome.is_acquired(), "worker_02 should acquire after worker_01 released");
+    assert!(
+        outcome.is_acquired(),
+        "worker_02 should acquire after worker_01 released"
+    );
     let entry = outcome.lock_entry().unwrap();
     assert_eq!(entry.holder_worker_id, "worker_02");
 }

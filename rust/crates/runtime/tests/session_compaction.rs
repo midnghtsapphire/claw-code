@@ -73,7 +73,10 @@ fn session_below_token_threshold_is_not_compacted() {
     let result = compact_session(&session, config);
 
     // then
-    assert!(!should, "session below threshold should not trigger compaction");
+    assert!(
+        !should,
+        "session below threshold should not trigger compaction"
+    );
     assert_eq!(result.removed_message_count, 0);
     assert_eq!(result.compacted_session, session);
 }
@@ -241,7 +244,9 @@ fn second_compaction_merges_prior_summary_into_combined_context() {
 
     // then — formatted summary must reference previously compacted context
     assert!(
-        second.formatted_summary.contains("Previously compacted context:")
+        second
+            .formatted_summary
+            .contains("Previously compacted context:")
             || second.formatted_summary.contains("Conversation summary:"),
         "second compaction must merge prior context, got: {}",
         &second.formatted_summary[..200.min(second.formatted_summary.len())]
@@ -316,12 +321,7 @@ fn token_estimate_includes_tool_use_and_tool_result_blocks() {
             name: "search".to_string(),
             input: "query ".repeat(100),
         }]),
-        ConversationMessage::tool_result(
-            "1",
-            "search",
-            "result ".repeat(100),
-            false,
-        ),
+        ConversationMessage::tool_result("1", "search", "result ".repeat(100), false),
     ];
 
     // compare with a text-only session of similar character count
@@ -378,8 +378,7 @@ fn first_message_of_compacted_session_is_system_role_with_summary_preamble() {
     };
     // must contain the continuation preamble
     assert!(
-        text.contains("continued from a previous conversation")
-            || text.contains("Summary:"),
+        text.contains("continued from a previous conversation") || text.contains("Summary:"),
         "continuation message must contain summary preamble, got: {text:.200?}"
     );
 }

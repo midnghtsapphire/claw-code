@@ -70,6 +70,14 @@
 | E7-1 | As a swarm operator, I need branch-lock detection before parallel workers collide | `branch_lock.rs` module; collision detection emits structured event before spawn | 8 |
 | E7-2 | As a swarm operator, I need commit provenance tracking per worktree | Push events include branch, worktree, superseded-by, lineage | 5 |
 
+### Epic 8 — Swarm State Persistence (P2)
+| ID | User Story | Acceptance Criteria | Points |
+|----|-----------|---------------------|--------|
+| E8-1 | As a swarm operator, I need branch-lock and provenance state persisted across restarts | `swarm_state.rs`: `SwarmStateStore` saves/loads `BranchLockRegistry` + `CommitProvenanceRegistry` to `.claw/swarm-state.json`; `BranchLockRegistry::snapshot()`/`restore_from_snapshot()` | 5 |
+| E8-2 | As a swarm operator, I need `git push` output auto-populated into provenance | `parse_git_push_output` + `record_push_from_git_output` in `commit_provenance.rs`; forced-push detects superseded SHA | 3 |
+| E8-3 | As a QA engineer, I need an E2E swarm simulation test | Two workers compete for one branch: collision detected, provenance recorded, state round-trip verified | 5 |
+| E8-4 | As a maintainer, I need runtime lib clippy warnings resolved | Zero warnings in `cargo clippy -p runtime --lib`; `#[must_use]`, format inlining, unused-import removal, structural lint suppression | 3 |
+
 ---
 
 ## Sprint Plan
@@ -177,6 +185,19 @@
 | E7-2 Commit provenance tracking | Executor | 5 |
 | Retrospective hardening + docs review | All | 3 |
 | **Sprint Total** | | **8** |
+
+---
+
+### Sprint 8 — Swarm State Persistence & Lint Hardening (Weeks 17–18)
+**Theme:** Reliability, restartability, code quality
+
+| Story | Assignee | Points |
+|-------|----------|--------|
+| E8-1 Swarm state persistence (`swarm_state.rs`) | Executor | 5 |
+| E8-2 Git push output parsing for provenance | Executor | 3 |
+| E8-3 E2E swarm simulation test (`swarm_e2e.rs`) | QA | 5 |
+| E8-4 Runtime lib clippy hardening | All | 3 |
+| **Sprint Total** | | **16** |
 
 ---
 

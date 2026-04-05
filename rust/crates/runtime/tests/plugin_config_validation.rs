@@ -28,8 +28,8 @@ use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use runtime::{
-    ConfigLoader, DiscoveryResult, PluginHealthcheck, PluginLifecycle, PluginState,
-    ResourceInfo, RuntimePluginConfig, ServerHealth, ServerStatus, ToolInfo,
+    ConfigLoader, DiscoveryResult, PluginHealthcheck, PluginLifecycle, PluginState, ResourceInfo,
+    RuntimePluginConfig, ServerHealth, ServerStatus, ToolInfo,
 };
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -169,9 +169,18 @@ fn default_plugin_config_has_no_plugins_or_paths() {
         config.external_directories().is_empty(),
         "default config should have no external directories"
     );
-    assert!(config.install_root().is_none(), "install_root should be None");
-    assert!(config.registry_path().is_none(), "registry_path should be None");
-    assert!(config.bundled_root().is_none(), "bundled_root should be None");
+    assert!(
+        config.install_root().is_none(),
+        "install_root should be None"
+    );
+    assert!(
+        config.registry_path().is_none(),
+        "registry_path should be None"
+    );
+    assert!(
+        config.bundled_root().is_none(),
+        "bundled_root should be None"
+    );
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -267,9 +276,7 @@ fn config_loader_parses_plugins_section_from_settings_json() {
     )
     .expect("write settings");
 
-    let config = ConfigLoader::new(&cwd, &home)
-        .load()
-        .expect("load config");
+    let config = ConfigLoader::new(&cwd, &home).load().expect("load config");
 
     let plugins = config.plugins();
     assert_eq!(plugins.state_for("tool-guard@builtin", false), true);
@@ -303,7 +310,10 @@ fn plugin_validate_config_err_when_install_root_missing() {
     let config = RuntimePluginConfig::default(); // install_root is None
 
     let result = plugin.validate_config(&config);
-    assert!(result.is_err(), "validation should fail without install_root");
+    assert!(
+        result.is_err(),
+        "validation should fail without install_root"
+    );
     let msg = result.unwrap_err();
     assert!(
         msg.contains("my-install-plugin"),
@@ -343,9 +353,7 @@ fn project_level_plugin_disable_overrides_user_level_enable() {
     )
     .expect("write project settings");
 
-    let config = ConfigLoader::new(&cwd, &home)
-        .load()
-        .expect("load config");
+    let config = ConfigLoader::new(&cwd, &home).load().expect("load config");
 
     assert_eq!(
         config.plugins().state_for("my-plugin", true),
@@ -370,12 +378,9 @@ fn empty_plugins_block_is_valid_and_produces_defaults() {
     fs::create_dir_all(&home).expect("home config dir");
     fs::create_dir_all(&cwd).expect("project dir");
 
-    fs::write(home.join("settings.json"), r#"{"plugins": {}}"#)
-        .expect("write settings");
+    fs::write(home.join("settings.json"), r#"{"plugins": {}}"#).expect("write settings");
 
-    let config = ConfigLoader::new(&cwd, &home)
-        .load()
-        .expect("load config");
+    let config = ConfigLoader::new(&cwd, &home).load().expect("load config");
 
     assert!(
         config.plugins().enabled_plugins().is_empty(),
@@ -405,9 +410,7 @@ fn enabled_plugins_top_level_key_is_parsed() {
     )
     .expect("write settings");
 
-    let config = ConfigLoader::new(&cwd, &home)
-        .load()
-        .expect("load config");
+    let config = ConfigLoader::new(&cwd, &home).load().expect("load config");
 
     assert_eq!(
         config.plugins().state_for("side-plugin", false),

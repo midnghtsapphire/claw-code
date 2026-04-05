@@ -69,10 +69,7 @@ fn healthy_server(name: &str, capabilities: &[&str]) -> ServerHealth {
     ServerHealth {
         server_name: name.to_string(),
         status: ServerStatus::Healthy,
-        capabilities: capabilities
-            .iter()
-            .map(|c| c.to_string())
-            .collect(),
+        capabilities: capabilities.iter().map(|c| c.to_string()).collect(),
         last_error: None,
     }
 }
@@ -81,10 +78,7 @@ fn failed_server_health(name: &str, capabilities: &[&str], error: &str) -> Serve
     ServerHealth {
         server_name: name.to_string(),
         status: ServerStatus::Failed,
-        capabilities: capabilities
-            .iter()
-            .map(|c| c.to_string())
-            .collect(),
+        capabilities: capabilities.iter().map(|c| c.to_string()).collect(),
         last_error: Some(error.to_string()),
     }
 }
@@ -180,12 +174,10 @@ fn tool_discovery_only_path_skips_resource_discovery() {
         Some(McpLifecyclePhase::Ready)
     );
     // ResourceDiscovery was never entered so it has no timestamp
-    assert!(
-        validator
-            .state()
-            .phase_timestamp(McpLifecyclePhase::ResourceDiscovery)
-            .is_none()
-    );
+    assert!(validator
+        .state()
+        .phase_timestamp(McpLifecyclePhase::ResourceDiscovery)
+        .is_none());
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -404,7 +396,11 @@ fn partial_startup_wires_into_plugin_healthcheck_degraded_mode() {
             error: beta_err,
         }],
         vec!["search".to_string(), "read".to_string()],
-        vec!["search".to_string(), "read".to_string(), "write".to_string()],
+        vec![
+            "search".to_string(),
+            "read".to_string(),
+            "write".to_string(),
+        ],
     );
 
     assert_eq!(report.missing_tools, vec!["write".to_string()]);

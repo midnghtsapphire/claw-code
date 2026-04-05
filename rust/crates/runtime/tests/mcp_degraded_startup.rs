@@ -88,7 +88,11 @@ fn single_server_spawn_failure_produces_degraded_report_with_no_working_servers(
     // build degraded report from the failure
     let report = McpDegradedReport::new(
         vec![],
-        vec![failed_server("alpha", McpLifecyclePhase::SpawnConnect, error)],
+        vec![failed_server(
+            "alpha",
+            McpLifecyclePhase::SpawnConnect,
+            error,
+        )],
         vec![],
         vec!["search".to_string(), "read".to_string()],
     );
@@ -128,7 +132,11 @@ fn partial_server_failure_splits_working_and_failed_servers() {
             error,
         )],
         vec!["search".to_string(), "read".to_string()], // discovered from alpha+gamma
-        vec!["search".to_string(), "read".to_string(), "write".to_string()], // write was on beta
+        vec![
+            "search".to_string(),
+            "read".to_string(),
+            "write".to_string(),
+        ], // write was on beta
     );
 
     // then
@@ -165,7 +173,11 @@ fn all_servers_failing_produces_empty_working_set_and_all_tools_missing() {
             failed_server("beta", McpLifecyclePhase::SpawnConnect, beta_err),
         ],
         vec![],
-        vec!["search".to_string(), "write".to_string(), "read".to_string()],
+        vec![
+            "search".to_string(),
+            "write".to_string(),
+            "read".to_string(),
+        ],
     );
 
     // then
@@ -173,7 +185,11 @@ fn all_servers_failing_produces_empty_working_set_and_all_tools_missing() {
     assert!(report.available_tools.is_empty());
     assert_eq!(
         report.missing_tools,
-        vec!["read".to_string(), "search".to_string(), "write".to_string()]
+        vec![
+            "read".to_string(),
+            "search".to_string(),
+            "write".to_string()
+        ]
     );
     assert_eq!(report.failed_servers.len(), 2);
 }
@@ -208,7 +224,10 @@ fn spawn_connect_timeout_is_marked_recoverable() {
         } => {
             assert_eq!(phase, McpLifecyclePhase::SpawnConnect);
             assert_eq!(actual, waited);
-            assert!(error.recoverable, "timeout at SpawnConnect should be recoverable");
+            assert!(
+                error.recoverable,
+                "timeout at SpawnConnect should be recoverable"
+            );
             assert_eq!(error.server_name.as_deref(), Some("slow-server"));
         }
         other => panic!("expected Timeout, got {other:?}"),
@@ -246,24 +265,17 @@ fn handshake_failure_phase_is_correctly_attributed_in_failed_server() {
         McpLifecyclePhase::InitializeHandshake,
         handshake_error.clone(),
     );
-    let report = McpDegradedReport::new(
-        vec![],
-        vec![failed],
-        vec![],
-        vec!["search".to_string()],
-    );
+    let report = McpDegradedReport::new(vec![], vec![failed], vec![], vec!["search".to_string()]);
 
     // then
     assert_eq!(
         report.failed_servers[0].phase,
         McpLifecyclePhase::InitializeHandshake
     );
-    assert!(
-        report.failed_servers[0]
-            .error
-            .message
-            .contains("protocol version mismatch")
-    );
+    assert!(report.failed_servers[0]
+        .error
+        .message
+        .contains("protocol version mismatch"));
     assert!(!report.failed_servers[0].error.recoverable);
 }
 
@@ -285,7 +297,11 @@ fn degraded_report_round_trips_through_json() {
     );
     let report = McpDegradedReport::new(
         vec!["gamma".to_string()],
-        vec![failed_server("alpha", McpLifecyclePhase::SpawnConnect, error)],
+        vec![failed_server(
+            "alpha",
+            McpLifecyclePhase::SpawnConnect,
+            error,
+        )],
         vec!["read".to_string()],
         vec!["read".to_string(), "search".to_string()],
     );
@@ -319,7 +335,11 @@ fn degraded_report_deduplicates_server_and_tool_lists() {
             "alpha".to_string(),
         ],
         vec![],
-        vec!["search".to_string(), "search".to_string(), "read".to_string()],
+        vec![
+            "search".to_string(),
+            "search".to_string(),
+            "read".to_string(),
+        ],
         vec!["read".to_string(), "write".to_string(), "write".to_string()],
     );
 

@@ -201,11 +201,8 @@ fn project_permission_mode_overrides_user_permission_mode() {
     fs::create_dir_all(&home).expect("home config dir");
 
     // User sets read-only (plan)
-    fs::write(
-        home.join("settings.json"),
-        r#"{"permissionMode":"plan"}"#,
-    )
-    .expect("write user settings");
+    fs::write(home.join("settings.json"), r#"{"permissionMode":"plan"}"#)
+        .expect("write user settings");
 
     // Project sets workspace write (acceptEdits)
     fs::write(
@@ -238,11 +235,8 @@ fn user_permission_mode_is_used_when_project_does_not_override() {
     fs::create_dir_all(&home).expect("home config dir");
 
     // User sets read-only (plan)
-    fs::write(
-        home.join("settings.json"),
-        r#"{"permissionMode":"plan"}"#,
-    )
-    .expect("write user settings");
+    fs::write(home.join("settings.json"), r#"{"permissionMode":"plan"}"#)
+        .expect("write user settings");
 
     // Project sets no permissionMode
     fs::write(
@@ -275,11 +269,8 @@ fn local_settings_permission_mode_beats_user_and_project() {
     fs::create_dir_all(&home).expect("home config dir");
 
     // User: read-only
-    fs::write(
-        home.join("settings.json"),
-        r#"{"permissionMode":"plan"}"#,
-    )
-    .expect("write user settings");
+    fs::write(home.join("settings.json"), r#"{"permissionMode":"plan"}"#)
+        .expect("write user settings");
 
     // Project: workspace write
     fs::write(

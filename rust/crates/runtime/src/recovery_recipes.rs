@@ -268,7 +268,7 @@ pub fn attempt_recovery(scenario: &FailureScenario, ctx: &mut RecoveryContext) -
         let remaining: Vec<RecoveryStep> = recipe.steps[executed.len()..].to_vec();
         if executed.is_empty() {
             RecoveryResult::EscalationRequired {
-                reason: format!("recovery failed at first step for {}", scenario),
+                reason: format!("recovery failed at first step for {scenario}"),
             }
         } else {
             RecoveryResult::PartialRecovery {
@@ -278,6 +278,7 @@ pub fn attempt_recovery(scenario: &FailureScenario, ctx: &mut RecoveryContext) -
         }
     } else {
         RecoveryResult::Recovered {
+            #[allow(clippy::cast_possible_truncation)]
             steps_taken: recipe.steps.len() as u32,
         }
     };

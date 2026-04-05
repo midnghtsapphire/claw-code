@@ -167,13 +167,11 @@ impl BranchLockRegistry {
     /// * If the branch is already held by any worker (including the same
     ///   `worker_id`), returns [`BranchAcquireOutcome::Collision`] with a
     ///   structured [`BranchCollisionEvent`].
+    #[must_use]
     pub fn try_acquire(&self, branch: &str, worker_id: &str) -> BranchAcquireOutcome {
         let mut inner = self.inner.lock().expect("branch lock registry poisoned");
         if let Some(existing) = inner.locks.get(branch) {
-            return BranchAcquireOutcome::Collision(BranchCollisionEvent::new(
-                existing,
-                worker_id,
-            ));
+            return BranchAcquireOutcome::Collision(BranchCollisionEvent::new(existing, worker_id));
         }
         let entry = BranchLockEntry {
             branch: branch.to_string(),
@@ -234,6 +232,29 @@ impl BranchLockRegistry {
         let inner = self.inner.lock().expect("branch lock registry poisoned");
         inner.locks.values().cloned().collect()
     }
+
+    /// Returns a serde-serializable snapshot of all currently held locks.
+    ///
+    /// Use [`restore_from_snapshot`](Self::restore_from_snapshot) to reload
+    /// this snapshot after a process restart, e.g. from `.claw/swarm-state.json`.
+    #[must_use]
+    pub fn snapshot(&self) -> Vec<BranchLockEntry> {
+        self.all_locks()
+    }
+
+    /// Restores lock state from a previously captured snapshot.
+    ///
+    /// Any locks currently held in the registry are replaced by the snapshot
+    /// entries.  This is intended for startup-time state recovery; during normal
+    /// operation, use [`try_acquire`](Self::try_acquire) and
+    /// [`release`](Self::release) instead.
+    pub fn restore_from_snapshot(&self, snapshot: Vec<BranchLockEntry>) {
+        let mut inner = self.inner.lock().expect("branch lock registry poisoned");
+        inner.locks.clear();
+        for entry in snapshot {
+            inner.locks.insert(entry.branch.clone(), entry);
+        }
+    }
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -286,7 +307,9 @@ mod tests {
         registry.try_acquire("main", "worker_01");
 
         // when
-        registry.release("main", "worker_01").expect("release should succeed");
+        registry
+            .release("main", "worker_01")
+            .expect("release should succeed");
 
         // then
         assert!(!registry.is_locked("main"));
