@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `tests/test_dispatch.py` — 74 unit tests for tool dispatch, command dispatch, `ToolPermissionContext` filtering, and `ExecutionRegistry` wiring (E4-4)
+- `docs/claw-code/CONTAINER_WORKFLOW.md` — Docker/Podman commands for build, test, and run including cross-compilation, volume mounting, and troubleshooting (E5-2)
 - `docs/claw-code/` directory with comprehensive project documentation:
   - `REPOSITORY_OVERVIEW.md` — full repository explanation, layout, tech stack, and module inventory
   - `STANDARDS_REVIEW.md` — side-by-side audit of revvel-standards vs. claw-code
