@@ -1,0 +1,78 @@
+name: Update CHANGELOG
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  changelog:
+    name: Prepend unreleased entry
+    # Only run on the actual main branch push — not on PR branches or when
+    # GitHub triggers a "new workflow file" run on a feature branch.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # need HEAD and HEAD~1 to get the latest commit message
+
+      - name: Prepend [unreleased] entry from latest commit
+        run: |
+          set -euo pipefail
+
+          COMMIT_HASH=$(git rev-parse --short HEAD)
+          COMMIT_MSG=$(git log -1 --pretty=format:"%s" HEAD)
+          COMMIT_AUTHOR=$(git log -1 --pretty=format:"%an" HEAD)
+          TODAY=$(date -u +%Y-%m-%d)
+
+          NEW_ENTRY="## [unreleased] — ${TODAY}
+
+### Added / Changed
+- ${COMMIT_MSG} (${COMMIT_HASH} by ${COMMIT_AUTHOR})
+
+---
+
+"
+
+          # Only prepend if the same commit hash isn't already the first entry
+          if grep -qF "${COMMIT_HASH}" CHANGELOG.md; then
+            echo "Commit ${COMMIT_HASH} already recorded in CHANGELOG.md — skipping."
+            exit 0
+          fi
+
+          # Insert after the file header (first two non-empty lines: title + blurb)
+          # Strategy: prepend the new entry right before the first "## " section heading.
+          if grep -q "^## " CHANGELOG.md; then
+            # Insert before the first section heading
+            awk -v entry="${NEW_ENTRY}" '
+              /^## / && !inserted {
+                printf "%s", entry
+                inserted = 1
+              }
+              { print }
+            ' CHANGELOG.md > CHANGELOG.tmp
+            mv CHANGELOG.tmp CHANGELOG.md
+          else
+            # No existing sections yet — just append to the file
+            printf "\n%s" "${NEW_ENTRY}" >> CHANGELOG.md
+          fi
+
+          echo "Prepended entry for ${COMMIT_HASH} to CHANGELOG.md"
+
+      - name: Commit CHANGELOG update
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if git diff --quiet CHANGELOG.md; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git add CHANGELOG.md
+          git commit -m "chore: update CHANGELOG for $(git rev-parse --short HEAD~1)"
+          git push

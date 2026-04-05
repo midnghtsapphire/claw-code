@@ -6,6 +6,8 @@
     clippy::unnecessary_wraps,
     clippy::unused_self
 )]
+mod agent_os_serve;
+mod ci_webhook;
 mod init;
 mod input;
 mod render;
@@ -30,8 +32,9 @@ use api::{
 };
 
 use commands::{
-    handle_agents_slash_command, handle_mcp_slash_command, handle_plugins_slash_command,
-    handle_skills_slash_command, render_slash_command_help, resume_supported_slash_commands,
+    handle_agents_slash_command, handle_agents_slash_command_json, handle_mcp_slash_command,
+    handle_mcp_slash_command_json, handle_plugins_slash_command, handle_skills_slash_command,
+    handle_skills_slash_command_json, render_slash_command_help, resume_supported_slash_commands,
     slash_command_specs, validate_slash_command_input, SlashCommand,
 };
 use compat_harness::{extract_manifest, UpstreamPaths};
@@ -109,9 +112,18 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     match parse_args(&args)? {
         CliAction::DumpManifests => dump_manifests(),
         CliAction::BootstrapPlan => print_bootstrap_plan(),
-        CliAction::Agents { args } => LiveCli::print_agents(args.as_deref())?,
-        CliAction::Mcp { args } => LiveCli::print_mcp(args.as_deref())?,
-        CliAction::Skills { args } => LiveCli::print_skills(args.as_deref())?,
+        CliAction::Agents {
+            args,
+            output_format,
+        } => LiveCli::print_agents(args.as_deref(), output_format)?,
+        CliAction::Mcp {
+            args,
+            output_format,
+        } => LiveCli::print_mcp(args.as_deref(), output_format)?,
+        CliAction::Skills {
+            args,
+            output_format,
+        } => LiveCli::print_skills(args.as_deref(), output_format)?,
         CliAction::PrintSystemPrompt { cwd, date } => print_system_prompt(cwd, date),
         CliAction::Version => print_version(),
         CliAction::ResumeSession {
@@ -121,8 +133,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         CliAction::Status {
             model,
             permission_mode,
-        } => print_status_snapshot(&model, permission_mode)?,
-        CliAction::Sandbox => print_sandbox_status_snapshot()?,
+            output_format,
+        } => print_status_snapshot(&model, permission_mode, output_format)?,
+        CliAction::Sandbox { output_format } => print_sandbox_status_snapshot(output_format)?,
         CliAction::Prompt {
             prompt,
             model,
@@ -134,6 +147,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         CliAction::Login => run_login()?,
         CliAction::Logout => run_logout()?,
         CliAction::Init => run_init()?,
+        CliAction::Doctor { output_format } => print_doctor_snapshot(output_format)?,
+        CliAction::Webhook { port, secret } => {
+            ci_webhook::run_webhook_server(port, secret.as_deref())?;
+        }
+        CliAction::Serve { port } => {
+            agent_os_serve::run_control_plane(port)?;
+        }
         CliAction::Repl {
             model,
             allowed_tools,
@@ -150,12 +170,15 @@ enum CliAction {
     BootstrapPlan,
     Agents {
         args: Option<String>,
+        output_format: CliOutputFormat,
     },
     Mcp {
         args: Option<String>,
+        output_format: CliOutputFormat,
     },
     Skills {
         args: Option<String>,
+        output_format: CliOutputFormat,
     },
     PrintSystemPrompt {
         cwd: PathBuf,
@@ -169,8 +192,11 @@ enum CliAction {
     Status {
         model: String,
         permission_mode: PermissionMode,
+        output_format: CliOutputFormat,
     },
-    Sandbox,
+    Sandbox {
+        output_format: CliOutputFormat,
+    },
     Prompt {
         prompt: String,
         model: String,
@@ -181,6 +207,16 @@ enum CliAction {
     Login,
     Logout,
     Init,
+    Doctor {
+        output_format: CliOutputFormat,
+    },
+    Webhook {
+        port: u16,
+        secret: Option<String>,
+    },
+    Serve {
+        port: u16,
+    },
     Repl {
         model: String,
         allowed_tools: Option<AllowedToolSet>,
@@ -341,7 +377,8 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
     if rest.first().map(String::as_str) == Some("--resume") {
         return parse_resume_args(&rest[1..]);
     }
-    if let Some(action) = parse_single_word_command_alias(&rest, &model, permission_mode_override)
+    if let Some(action) =
+        parse_single_word_command_alias(&rest, &model, permission_mode_override, output_format)
     {
         return action;
     }
@@ -353,17 +390,22 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
         "bootstrap-plan" => Ok(CliAction::BootstrapPlan),
         "agents" => Ok(CliAction::Agents {
             args: join_optional_args(&rest[1..]),
+            output_format,
         }),
         "mcp" => Ok(CliAction::Mcp {
             args: join_optional_args(&rest[1..]),
+            output_format,
         }),
         "skills" => Ok(CliAction::Skills {
             args: join_optional_args(&rest[1..]),
+            output_format,
         }),
         "system-prompt" => parse_system_prompt_args(&rest[1..]),
         "login" => Ok(CliAction::Login),
         "logout" => Ok(CliAction::Logout),
         "init" => Ok(CliAction::Init),
+        "webhook" => parse_webhook_args(&rest[1..]),
+        "serve" => parse_serve_args(&rest[1..]),
         "prompt" => {
             let prompt = rest[1..].join(" ");
             if prompt.trim().is_empty() {
@@ -392,6 +434,7 @@ fn parse_single_word_command_alias(
     rest: &[String],
     model: &str,
     permission_mode_override: Option<PermissionMode>,
+    output_format: CliOutputFormat,
 ) -> Option<Result<CliAction, String>> {
     if rest.len() != 1 {
         return None;
@@ -403,8 +446,10 @@ fn parse_single_word_command_alias(
         "status" => Some(Ok(CliAction::Status {
             model: model.to_string(),
             permission_mode: permission_mode_override.unwrap_or_else(default_permission_mode),
+            output_format,
         })),
-        "sandbox" => Some(Ok(CliAction::Sandbox)),
+        "sandbox" => Some(Ok(CliAction::Sandbox { output_format })),
+        "doctor" => Some(Ok(CliAction::Doctor { output_format })),
         other => bare_slash_command_guidance(other).map(Err),
     }
 }
@@ -422,6 +467,9 @@ fn bare_slash_command_guidance(command_name: &str) -> Option<String> {
             | "logout"
             | "init"
             | "prompt"
+            | "doctor"
+            | "webhook"
+            | "serve"
     ) {
         return None;
     }
@@ -450,7 +498,10 @@ fn parse_direct_slash_cli_action(rest: &[String]) -> Result<CliAction, String> {
     let raw = rest.join(" ");
     match SlashCommand::parse(&raw) {
         Ok(Some(SlashCommand::Help)) => Ok(CliAction::Help),
-        Ok(Some(SlashCommand::Agents { args })) => Ok(CliAction::Agents { args }),
+        Ok(Some(SlashCommand::Agents { args })) => Ok(CliAction::Agents {
+            args,
+            output_format: CliOutputFormat::Text,
+        }),
         Ok(Some(SlashCommand::Mcp { action, target })) => Ok(CliAction::Mcp {
             args: match (action, target) {
                 (None, None) => None,
@@ -458,8 +509,12 @@ fn parse_direct_slash_cli_action(rest: &[String]) -> Result<CliAction, String> {
                 (Some(action), Some(target)) => Some(format!("{action} {target}")),
                 (None, Some(target)) => Some(target),
             },
+            output_format: CliOutputFormat::Text,
         }),
-        Ok(Some(SlashCommand::Skills { args })) => Ok(CliAction::Skills { args }),
+        Ok(Some(SlashCommand::Skills { args })) => Ok(CliAction::Skills {
+            args,
+            output_format: CliOutputFormat::Text,
+        }),
         Ok(Some(SlashCommand::Unknown(name))) => Err(format_unknown_direct_slash_command(&name)),
         Ok(Some(command)) => Err({
             let _ = command;
@@ -696,6 +751,70 @@ fn parse_system_prompt_args(args: &[String]) -> Result<CliAction, String> {
     }
 
     Ok(CliAction::PrintSystemPrompt { cwd, date })
+}
+
+fn parse_webhook_args(args: &[String]) -> Result<CliAction, String> {
+    let mut port = ci_webhook::DEFAULT_WEBHOOK_PORT;
+    let mut secret: Option<String> = None;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--port" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| "missing value for --port".to_string())?;
+                port = value
+                    .parse::<u16>()
+                    .map_err(|_| format!("invalid port: {value}"))?;
+                index += 2;
+            }
+            flag if flag.starts_with("--port=") => {
+                port = flag[7..]
+                    .parse::<u16>()
+                    .map_err(|_| format!("invalid port: {}", &flag[7..]))?;
+                index += 1;
+            }
+            "--secret" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| "missing value for --secret".to_string())?;
+                secret = Some(value.clone());
+                index += 2;
+            }
+            flag if flag.starts_with("--secret=") => {
+                secret = Some(flag[9..].to_string());
+                index += 1;
+            }
+            other => return Err(format!("unknown webhook option: {other}")),
+        }
+    }
+    Ok(CliAction::Webhook { port, secret })
+}
+
+fn parse_serve_args(args: &[String]) -> Result<CliAction, String> {
+    let mut port = agent_os_serve::DEFAULT_SERVE_PORT;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--port" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| "missing value for --port".to_string())?;
+                port = value
+                    .parse::<u16>()
+                    .map_err(|_| format!("invalid port: {value}"))?;
+                index += 2;
+            }
+            flag if flag.starts_with("--port=") => {
+                port = flag[7..]
+                    .parse::<u16>()
+                    .map_err(|_| format!("invalid port: {}", &flag[7..]))?;
+                index += 1;
+            }
+            other => return Err(format!("unknown serve option: {other}")),
+        }
+    }
+    Ok(CliAction::Serve { port })
 }
 
 fn parse_resume_args(args: &[String]) -> Result<CliAction, String> {
@@ -1751,37 +1870,38 @@ impl RuntimeMcpState {
             .into_iter()
             .filter(|server_name| !failed_server_names.contains(server_name))
             .collect::<Vec<_>>();
-        let failed_servers = discovery
-            .failed_servers
-            .iter()
-            .map(|failure| runtime::McpFailedServer {
-                server_name: failure.server_name.clone(),
-                phase: runtime::McpLifecyclePhase::ToolDiscovery,
-                error: runtime::McpErrorSurface::new(
-                    runtime::McpLifecyclePhase::ToolDiscovery,
-                    Some(failure.server_name.clone()),
-                    failure.error.clone(),
-                    std::collections::BTreeMap::new(),
-                    true,
-                ),
-            })
-            .chain(discovery.unsupported_servers.iter().map(|server| {
-                runtime::McpFailedServer {
-                    server_name: server.server_name.clone(),
-                    phase: runtime::McpLifecyclePhase::ServerRegistration,
+        let failed_servers =
+            discovery
+                .failed_servers
+                .iter()
+                .map(|failure| runtime::McpFailedServer {
+                    server_name: failure.server_name.clone(),
+                    phase: runtime::McpLifecyclePhase::ToolDiscovery,
                     error: runtime::McpErrorSurface::new(
-                        runtime::McpLifecyclePhase::ServerRegistration,
-                        Some(server.server_name.clone()),
-                        server.reason.clone(),
-                        std::collections::BTreeMap::from([(
-                            "transport".to_string(),
-                            format!("{:?}", server.transport).to_ascii_lowercase(),
-                        )]),
-                        false,
+                        runtime::McpLifecyclePhase::ToolDiscovery,
+                        Some(failure.server_name.clone()),
+                        failure.error.clone(),
+                        std::collections::BTreeMap::new(),
+                        true,
                     ),
-                }
-            }))
-            .collect::<Vec<_>>();
+                })
+                .chain(discovery.unsupported_servers.iter().map(|server| {
+                    runtime::McpFailedServer {
+                        server_name: server.server_name.clone(),
+                        phase: runtime::McpLifecyclePhase::ServerRegistration,
+                        error: runtime::McpErrorSurface::new(
+                            runtime::McpLifecyclePhase::ServerRegistration,
+                            Some(server.server_name.clone()),
+                            server.reason.clone(),
+                            std::collections::BTreeMap::from([(
+                                "transport".to_string(),
+                                format!("{:?}", server.transport).to_ascii_lowercase(),
+                            )]),
+                            false,
+                        ),
+                    }
+                }))
+                .collect::<Vec<_>>();
         let degraded_report = (!failed_servers.is_empty()).then(|| {
             runtime::McpDegradedReport::new(
                 working_servers,
@@ -2350,7 +2470,7 @@ impl LiveCli {
                     (Some(action), Some(target)) => Some(format!("{action} {target}")),
                     (None, Some(target)) => Some(target.to_string()),
                 };
-                Self::print_mcp(args.as_deref())?;
+                Self::print_mcp(args.as_deref(), CliOutputFormat::Text)?;
                 false
             }
             SlashCommand::Memory => {
@@ -2380,11 +2500,11 @@ impl LiveCli {
                 self.handle_plugins_command(action.as_deref(), target.as_deref())?
             }
             SlashCommand::Agents { args } => {
-                Self::print_agents(args.as_deref())?;
+                Self::print_agents(args.as_deref(), CliOutputFormat::Text)?;
                 false
             }
             SlashCommand::Skills { args } => {
-                Self::print_skills(args.as_deref())?;
+                Self::print_skills(args.as_deref(), CliOutputFormat::Text)?;
                 false
             }
             SlashCommand::Doctor
@@ -2659,21 +2779,39 @@ impl LiveCli {
         Ok(())
     }
 
-    fn print_agents(args: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+    fn print_agents(
+        args: Option<&str>,
+        output_format: CliOutputFormat,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let cwd = env::current_dir()?;
-        println!("{}", handle_agents_slash_command(args, &cwd)?);
+        match output_format {
+            CliOutputFormat::Text => println!("{}", handle_agents_slash_command(args, &cwd)?),
+            CliOutputFormat::Json => println!("{}", handle_agents_slash_command_json(&cwd)?),
+        }
         Ok(())
     }
 
-    fn print_mcp(args: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+    fn print_mcp(
+        args: Option<&str>,
+        output_format: CliOutputFormat,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let cwd = env::current_dir()?;
-        println!("{}", handle_mcp_slash_command(args, &cwd)?);
+        match output_format {
+            CliOutputFormat::Text => println!("{}", handle_mcp_slash_command(args, &cwd)?),
+            CliOutputFormat::Json => println!("{}", handle_mcp_slash_command_json(&cwd)?),
+        }
         Ok(())
     }
 
-    fn print_skills(args: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+    fn print_skills(
+        args: Option<&str>,
+        output_format: CliOutputFormat,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let cwd = env::current_dir()?;
-        println!("{}", handle_skills_slash_command(args, &cwd)?);
+        match output_format {
+            CliOutputFormat::Text => println!("{}", handle_skills_slash_command(args, &cwd)?),
+            CliOutputFormat::Json => println!("{}", handle_skills_slash_command_json(&cwd)?),
+        }
         Ok(())
     }
 
@@ -3179,22 +3317,36 @@ fn render_repl_help() -> String {
 fn print_status_snapshot(
     model: &str,
     permission_mode: PermissionMode,
+    output_format: CliOutputFormat,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    println!(
-        "{}",
-        format_status_report(
-            model,
-            StatusUsage {
-                message_count: 0,
-                turns: 0,
-                latest: TokenUsage::default(),
-                cumulative: TokenUsage::default(),
-                estimated_tokens: 0,
-            },
-            permission_mode.as_str(),
-            &status_context(None)?,
-        )
-    );
+    let context = status_context(None)?;
+    let usage = StatusUsage {
+        message_count: 0,
+        turns: 0,
+        latest: TokenUsage::default(),
+        cumulative: TokenUsage::default(),
+        estimated_tokens: 0,
+    };
+    match output_format {
+        CliOutputFormat::Text => {
+            println!(
+                "{}",
+                format_status_report(model, usage, permission_mode.as_str(), &context,)
+            );
+        }
+        CliOutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string(&format_status_snapshot_json(
+                    model,
+                    usage,
+                    permission_mode.as_str(),
+                    &context,
+                ))
+                .unwrap_or_else(|_| "{}".to_string())
+            );
+        }
+    }
     Ok(())
 }
 
@@ -3335,6 +3487,275 @@ fn format_sandbox_report(status: &runtime::SandboxStatus) -> String {
     )
 }
 
+fn format_sandbox_snapshot_json(status: &runtime::SandboxStatus) -> serde_json::Value {
+    json!({
+        "sandbox": {
+            "enabled": status.enabled,
+            "active": status.active,
+            "supported": status.supported,
+            "in_container": status.in_container,
+            "requested": {
+                "namespace_restrictions": status.requested.namespace_restrictions,
+                "network_isolation": status.requested.network_isolation,
+            },
+            "namespace_active": status.namespace_active,
+            "network_active": status.network_active,
+            "filesystem_mode": status.filesystem_mode.as_str(),
+            "filesystem_active": status.filesystem_active,
+            "allowed_mounts": status.allowed_mounts,
+            "container_markers": status.container_markers,
+            "fallback_reason": status.fallback_reason,
+        }
+    })
+}
+
+fn format_status_snapshot_json(
+    model: &str,
+    usage: StatusUsage,
+    permission_mode: &str,
+    context: &StatusContext,
+) -> serde_json::Value {
+    json!({
+        "status": {
+            "model": model,
+            "permission_mode": permission_mode,
+            "messages": usage.message_count,
+            "turns": usage.turns,
+            "estimated_tokens": usage.estimated_tokens,
+        },
+        "usage": {
+            "latest_total": usage.latest.total_tokens(),
+            "cumulative_input": usage.cumulative.input_tokens,
+            "cumulative_output": usage.cumulative.output_tokens,
+            "cumulative_total": usage.cumulative.total_tokens(),
+        },
+        "workspace": {
+            "cwd": context.cwd.display().to_string(),
+            "project_root": context.project_root.as_ref().map(|p| p.display().to_string()),
+            "git_branch": context.git_branch,
+            "git_state": context.git_summary.headline(),
+            "changed_files": context.git_summary.changed_files,
+            "staged_files": context.git_summary.staged_files,
+            "unstaged_files": context.git_summary.unstaged_files,
+            "untracked_files": context.git_summary.untracked_files,
+            "session": context.session_path.as_ref().map(|p| p.display().to_string()),
+            "config_files_loaded": context.loaded_config_files,
+            "config_files_discovered": context.discovered_config_files,
+            "memory_files": context.memory_file_count,
+        },
+        "sandbox": {
+            "enabled": context.sandbox_status.enabled,
+            "active": context.sandbox_status.active,
+            "supported": context.sandbox_status.supported,
+        }
+    })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DoctorCheck {
+    name: String,
+    status: DoctorCheckStatus,
+    detail: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DoctorCheckStatus {
+    Ok,
+    Warning,
+    Error,
+}
+
+impl DoctorCheckStatus {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::Warning => "warning",
+            Self::Error => "error",
+        }
+    }
+    fn icon(self) -> &'static str {
+        match self {
+            Self::Ok => "✓",
+            Self::Warning => "⚠",
+            Self::Error => "✗",
+        }
+    }
+}
+
+fn run_doctor_checks() -> Vec<DoctorCheck> {
+    let mut checks = Vec::new();
+    let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+
+    // Check 1: API key / auth
+    let auth_check = resolve_startup_auth_source(|| {
+        let config = ConfigLoader::default_for(&cwd)
+            .load()
+            .map_err(|error| api::ApiError::Auth(format!("config load failed: {error}")))?;
+        Ok(config.oauth().cloned())
+    });
+    checks.push(DoctorCheck {
+        name: "auth".to_string(),
+        status: match &auth_check {
+            Ok(AuthSource::None) | Err(_) => DoctorCheckStatus::Warning,
+            Ok(_) => DoctorCheckStatus::Ok,
+        },
+        detail: match &auth_check {
+            Ok(AuthSource::ApiKey(_)) => {
+                "ANTHROPIC_API_KEY environment variable is set".to_string()
+            }
+            Ok(AuthSource::ApiKeyAndBearer { .. }) => {
+                "ANTHROPIC_API_KEY and bearer token are set".to_string()
+            }
+            Ok(AuthSource::BearerToken(_)) => "OAuth bearer token is available".to_string(),
+            Ok(AuthSource::None) | Err(_) => {
+                "No API key or OAuth credentials found. Run `claw login` or set ANTHROPIC_API_KEY"
+                    .to_string()
+            }
+        },
+    });
+
+    // Check 2: Config files
+    let loader = ConfigLoader::default_for(&cwd);
+    let discovered = loader.discover();
+    let loaded_count = loader.load().map_or(0, |c| c.loaded_entries().len());
+    checks.push(DoctorCheck {
+        name: "config".to_string(),
+        status: DoctorCheckStatus::Ok,
+        detail: format!(
+            "{loaded_count} config file(s) loaded out of {} discovered",
+            discovered.len()
+        ),
+    });
+
+    // Check 3: CLAUDE.md / claw project file
+    let has_claude_md =
+        cwd.join("CLAUDE.md").is_file() || cwd.join(".claude").join("CLAUDE.md").is_file();
+    checks.push(DoctorCheck {
+        name: "project-file".to_string(),
+        status: if has_claude_md {
+            DoctorCheckStatus::Ok
+        } else {
+            DoctorCheckStatus::Warning
+        },
+        detail: if has_claude_md {
+            "CLAUDE.md found in workspace".to_string()
+        } else {
+            "No CLAUDE.md found. Run `claw init` to create one".to_string()
+        },
+    });
+
+    // Check 4: Sandbox status
+    let runtime_config = loader
+        .load()
+        .unwrap_or_else(|_| runtime::RuntimeConfig::empty());
+    let sandbox = resolve_sandbox_status(runtime_config.sandbox(), &cwd);
+    checks.push(DoctorCheck {
+        name: "sandbox".to_string(),
+        status: DoctorCheckStatus::Ok,
+        detail: format!(
+            "sandbox: enabled={} active={} supported={}",
+            sandbox.enabled, sandbox.active, sandbox.supported
+        ),
+    });
+
+    // Check 5: Session directory
+    let session_dir = cwd.join(".claw").join("sessions");
+    let session_dir_ok = session_dir.is_dir()
+        || cwd.join(".claude").join("sessions").is_dir()
+        || cwd.join(".claw").is_dir();
+    checks.push(DoctorCheck {
+        name: "session-dir".to_string(),
+        status: if session_dir_ok {
+            DoctorCheckStatus::Ok
+        } else {
+            DoctorCheckStatus::Warning
+        },
+        detail: if session_dir_ok {
+            "session directory found".to_string()
+        } else {
+            "No session directory — run `claw init` or start a REPL session to create one"
+                .to_string()
+        },
+    });
+
+    checks
+}
+
+fn format_doctor_report(checks: &[DoctorCheck]) -> String {
+    let errors = checks
+        .iter()
+        .filter(|c| c.status == DoctorCheckStatus::Error)
+        .count();
+    let warnings = checks
+        .iter()
+        .filter(|c| c.status == DoctorCheckStatus::Warning)
+        .count();
+    let overall = if errors > 0 {
+        "issues found"
+    } else if warnings > 0 {
+        "warnings (no blocking issues)"
+    } else {
+        "all checks passed"
+    };
+    let mut lines = vec![
+        format!("Doctor  ({overall})"),
+        format!("  Checks           {}", checks.len()),
+        format!("  Errors           {errors}"),
+        format!("  Warnings         {warnings}"),
+        String::new(),
+    ];
+    for check in checks {
+        lines.push(format!(
+            "  {} {:<20} {}",
+            check.status.icon(),
+            check.name,
+            check.detail
+        ));
+    }
+    if errors == 0 && warnings == 0 {
+        lines.push(String::new());
+        lines.push(
+            "  Next             Start the REPL with `claw` or run a prompt with `claw <prompt>`"
+                .to_string(),
+        );
+    }
+    lines.join("\n")
+}
+
+fn format_doctor_json(checks: &[DoctorCheck]) -> serde_json::Value {
+    let errors = checks
+        .iter()
+        .filter(|c| c.status == DoctorCheckStatus::Error)
+        .count();
+    let warnings = checks
+        .iter()
+        .filter(|c| c.status == DoctorCheckStatus::Warning)
+        .count();
+    json!({
+        "overall": if errors > 0 { "error" } else if warnings > 0 { "warning" } else { "ok" },
+        "errors": errors,
+        "warnings": warnings,
+        "checks": checks.iter().map(|c| json!({
+            "name": c.name,
+            "status": c.status.label(),
+            "detail": c.detail,
+        })).collect::<Vec<_>>(),
+    })
+}
+
+fn print_doctor_snapshot(output_format: CliOutputFormat) -> Result<(), Box<dyn std::error::Error>> {
+    let checks = run_doctor_checks();
+    match output_format {
+        CliOutputFormat::Text => println!("{}", format_doctor_report(&checks)),
+        CliOutputFormat::Json => println!(
+            "{}",
+            serde_json::to_string(&format_doctor_json(&checks))
+                .unwrap_or_else(|_| "{}".to_string())
+        ),
+    }
+    Ok(())
+}
+
 fn format_commit_preflight_report(branch: Option<&str>, summary: GitWorkspaceSummary) -> String {
     format!(
         "Commit
@@ -3358,16 +3779,27 @@ fn format_commit_skipped_report() -> String {
         .to_string()
 }
 
-fn print_sandbox_status_snapshot() -> Result<(), Box<dyn std::error::Error>> {
+fn print_sandbox_status_snapshot(
+    output_format: CliOutputFormat,
+) -> Result<(), Box<dyn std::error::Error>> {
     let cwd = env::current_dir()?;
     let loader = ConfigLoader::default_for(&cwd);
     let runtime_config = loader
         .load()
         .unwrap_or_else(|_| runtime::RuntimeConfig::empty());
-    println!(
-        "{}",
-        format_sandbox_report(&resolve_sandbox_status(runtime_config.sandbox(), &cwd))
-    );
+    let status = resolve_sandbox_status(runtime_config.sandbox(), &cwd);
+    match output_format {
+        CliOutputFormat::Text => {
+            println!("{}", format_sandbox_report(&status));
+        }
+        CliOutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string(&format_sandbox_snapshot_json(&status))
+                    .unwrap_or_else(|_| "{}".to_string())
+            );
+        }
+    }
     Ok(())
 }
 
@@ -5549,6 +5981,15 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
     )?;
     writeln!(out, "  claw sandbox")?;
     writeln!(out, "      Show the current sandbox isolation snapshot")?;
+    writeln!(out, "  claw doctor")?;
+    writeln!(
+        out,
+        "      Run health checks (auth, config, CLAUDE.md, sandbox, sessions)"
+    )?;
+    writeln!(out, "  claw webhook [--port N] [--secret TOKEN]")?;
+    writeln!(out, "      AI-Native CI/CD: receive GitHub Actions events, classify failures, and output recovery recommendations")?;
+    writeln!(out, "  claw serve [--port N]")?;
+    writeln!(out, "      Agent OS control plane: REST API over task/worker registries (/v1/status, /v1/tasks, /v1/workers)")?;
     writeln!(out, "  claw dump-manifests")?;
     writeln!(out, "  claw bootstrap-plan")?;
     writeln!(out, "  claw agents")?;
@@ -6027,21 +6468,31 @@ mod tests {
         );
         assert_eq!(
             parse_args(&["agents".to_string()]).expect("agents should parse"),
-            CliAction::Agents { args: None }
+            CliAction::Agents {
+                args: None,
+                output_format: CliOutputFormat::Text
+            }
         );
         assert_eq!(
             parse_args(&["mcp".to_string()]).expect("mcp should parse"),
-            CliAction::Mcp { args: None }
+            CliAction::Mcp {
+                args: None,
+                output_format: CliOutputFormat::Text
+            }
         );
         assert_eq!(
             parse_args(&["skills".to_string()]).expect("skills should parse"),
-            CliAction::Skills { args: None }
+            CliAction::Skills {
+                args: None,
+                output_format: CliOutputFormat::Text
+            }
         );
         assert_eq!(
             parse_args(&["agents".to_string(), "--help".to_string()])
                 .expect("agents help should parse"),
             CliAction::Agents {
-                args: Some("--help".to_string())
+                args: Some("--help".to_string()),
+                output_format: CliOutputFormat::Text,
             }
         );
     }
@@ -6063,11 +6514,14 @@ mod tests {
             CliAction::Status {
                 model: DEFAULT_MODEL.to_string(),
                 permission_mode: PermissionMode::DangerFullAccess,
+                output_format: CliOutputFormat::Text,
             }
         );
         assert_eq!(
             parse_args(&["sandbox".to_string()]).expect("sandbox should parse"),
-            CliAction::Sandbox
+            CliAction::Sandbox {
+                output_format: CliOutputFormat::Text,
+            }
         );
     }
 
@@ -6099,24 +6553,32 @@ mod tests {
     fn parses_direct_agents_mcp_and_skills_slash_commands() {
         assert_eq!(
             parse_args(&["/agents".to_string()]).expect("/agents should parse"),
-            CliAction::Agents { args: None }
+            CliAction::Agents {
+                args: None,
+                output_format: CliOutputFormat::Text
+            }
         );
         assert_eq!(
             parse_args(&["/mcp".to_string(), "show".to_string(), "demo".to_string()])
                 .expect("/mcp show demo should parse"),
             CliAction::Mcp {
-                args: Some("show demo".to_string())
+                args: Some("show demo".to_string()),
+                output_format: CliOutputFormat::Text,
             }
         );
         assert_eq!(
             parse_args(&["/skills".to_string()]).expect("/skills should parse"),
-            CliAction::Skills { args: None }
+            CliAction::Skills {
+                args: None,
+                output_format: CliOutputFormat::Text
+            }
         );
         assert_eq!(
             parse_args(&["/skills".to_string(), "help".to_string()])
                 .expect("/skills help should parse"),
             CliAction::Skills {
-                args: Some("help".to_string())
+                args: Some("help".to_string()),
+                output_format: CliOutputFormat::Text,
             }
         );
         assert_eq!(
@@ -6127,7 +6589,8 @@ mod tests {
             ])
             .expect("/skills install should parse"),
             CliAction::Skills {
-                args: Some("install ./fixtures/help-skill".to_string())
+                args: Some("install ./fixtures/help-skill".to_string()),
+                output_format: CliOutputFormat::Text,
             }
         );
         let error = parse_args(&["/status".to_string()])
@@ -7509,8 +7972,12 @@ UU conflicted.rs",
         let runtime_config = loader.load().expect("runtime config should load");
         let state = build_runtime_plugin_state_with_loader(&workspace, &loader, &runtime_config)
             .expect("runtime plugin state should load");
-        let mut executor =
-            CliToolExecutor::new(None, false, state.tool_registry.clone(), state.mcp_state.clone());
+        let mut executor = CliToolExecutor::new(
+            None,
+            false,
+            state.tool_registry.clone(),
+            state.mcp_state.clone(),
+        );
 
         let search_output = executor
             .execute("ToolSearch", r#"{"query":"remote","max_results":5}"#)

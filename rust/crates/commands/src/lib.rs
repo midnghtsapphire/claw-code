@@ -9,6 +9,7 @@ use runtime::{
     compact_session, CompactionConfig, ConfigLoader, ConfigSource, McpOAuthConfig, McpServerConfig,
     ScopedMcpServerConfig, Session,
 };
+use serde_json::Value as JsonValue;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandManifestEntry {
@@ -2153,12 +2154,34 @@ pub fn handle_agents_slash_command(args: Option<&str>, cwd: &Path) -> std::io::R
     }
 }
 
+/// Returns a JSON string representing the agents list for the given `cwd`.
+///
+/// # Errors
+/// Returns an error if agent definition files cannot be read.
+pub fn handle_agents_slash_command_json(cwd: &Path) -> std::io::Result<String> {
+    let roots = discover_definition_roots(cwd, "agents");
+    let agents = load_agents_from_roots(&roots)?;
+    let value = render_agents_json(&agents);
+    serde_json::to_string(&value).map_err(|e| std::io::Error::other(e.to_string()))
+}
+
 pub fn handle_mcp_slash_command(
     args: Option<&str>,
     cwd: &Path,
 ) -> Result<String, runtime::ConfigError> {
     let loader = ConfigLoader::default_for(cwd);
     render_mcp_report_for(&loader, cwd, args)
+}
+
+/// Returns a JSON string representing the MCP server summary for the given `cwd`.
+///
+/// # Errors
+/// Returns an error if config files cannot be read or are malformed.
+pub fn handle_mcp_slash_command_json(cwd: &Path) -> Result<String, runtime::ConfigError> {
+    let loader = ConfigLoader::default_for(cwd);
+    let runtime_config = loader.load()?;
+    let value = render_mcp_summary_json(cwd, runtime_config.mcp().servers());
+    serde_json::to_string(&value).map_err(|e| runtime::ConfigError::Parse(e.to_string()))
 }
 
 pub fn handle_skills_slash_command(args: Option<&str>, cwd: &Path) -> std::io::Result<String> {
@@ -2180,6 +2203,17 @@ pub fn handle_skills_slash_command(args: Option<&str>, cwd: &Path) -> std::io::R
         Some("-h" | "--help" | "help") => Ok(render_skills_usage(None)),
         Some(args) => Ok(render_skills_usage(Some(args))),
     }
+}
+
+/// Returns a JSON string representing the skills list for the given `cwd`.
+///
+/// # Errors
+/// Returns an error if skill definition files cannot be read.
+pub fn handle_skills_slash_command_json(cwd: &Path) -> std::io::Result<String> {
+    let roots = discover_skill_roots(cwd);
+    let skills = load_skills_from_roots(&roots)?;
+    let value = render_skills_json(&skills);
+    serde_json::to_string(&value).map_err(|e| std::io::Error::other(e.to_string()))
 }
 
 fn render_mcp_report_for(
@@ -3109,6 +3143,61 @@ fn mcp_server_summary(config: &McpServerConfig) -> String {
         McpServerConfig::Sdk(config) => config.name.clone(),
         McpServerConfig::ManagedProxy(config) => format!("{} ({})", config.id, config.url),
     }
+}
+
+fn render_agents_json(agents: &[AgentSummary]) -> JsonValue {
+    let items: Vec<JsonValue> = agents
+        .iter()
+        .map(|a| {
+            serde_json::json!({
+                "name": a.name,
+                "description": a.description,
+                "model": a.model,
+                "reasoning_effort": a.reasoning_effort,
+                "source": a.source.label(),
+                "shadowed_by": a.shadowed_by.map(|s| s.label()),
+            })
+        })
+        .collect();
+    serde_json::json!({ "agents": items })
+}
+
+fn render_skills_json(skills: &[SkillSummary]) -> JsonValue {
+    let items: Vec<JsonValue> = skills
+        .iter()
+        .map(|s| {
+            serde_json::json!({
+                "name": s.name,
+                "description": s.description,
+                "source": s.source.label(),
+                "shadowed_by": s.shadowed_by.map(|w| w.label()),
+                "origin": s.origin.detail_label().unwrap_or("skills"),
+            })
+        })
+        .collect();
+    serde_json::json!({ "skills": items })
+}
+
+fn render_mcp_summary_json(
+    cwd: &Path,
+    servers: &BTreeMap<String, ScopedMcpServerConfig>,
+) -> JsonValue {
+    let server_items: Vec<JsonValue> = servers
+        .iter()
+        .map(|(name, server)| {
+            serde_json::json!({
+                "name": name,
+                "transport": mcp_transport_label(&server.config),
+                "scope": config_source_label(server.scope),
+                "summary": mcp_server_summary(&server.config),
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "cwd": cwd.display().to_string(),
+        "server_count": servers.len(),
+        "servers": server_items,
+    })
 }
 
 fn format_optional_list(values: &[String]) -> String {

@@ -7,6 +7,8 @@
 mod bash;
 pub mod bash_validation;
 mod bootstrap;
+pub mod branch_lock;
+pub mod commit_provenance;
 mod compact;
 mod config;
 mod conversation;
@@ -35,6 +37,7 @@ pub mod session_control;
 mod sse;
 pub mod stale_branch;
 pub mod summary_compression;
+pub mod swarm_state;
 pub mod task_packet;
 pub mod task_registry;
 pub mod team_cron_registry;
@@ -44,6 +47,13 @@ pub mod worker_boot;
 
 pub use bash::{execute_bash, BashCommandInput, BashCommandOutput};
 pub use bootstrap::{BootstrapPhase, BootstrapPlan};
+pub use branch_lock::{
+    BranchAcquireOutcome, BranchCollisionEvent, BranchLockEntry, BranchLockRegistry,
+};
+pub use commit_provenance::{
+    parse_git_push_output, record_push_from_git_output, CommitLineage, CommitProvenanceRecord,
+    CommitProvenanceRegistry, GitPushRefUpdate, PushEvent,
+};
 pub use compact::{
     compact_session, estimate_session_tokens, format_compact_summary,
     get_compact_continuation_message, should_compact, CompactionConfig, CompactionResult,

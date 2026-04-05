@@ -164,10 +164,7 @@ impl McpLifecycleState {
 
     #[must_use]
     pub fn errors_for_phase(&self, phase: McpLifecyclePhase) -> &[McpErrorSurface] {
-        self.phase_errors
-            .get(&phase)
-            .map(Vec::as_slice)
-            .unwrap_or(&[])
+        self.phase_errors.get(&phase).map_or(&[], Vec::as_slice)
     }
 
     #[must_use]
@@ -269,6 +266,7 @@ impl McpLifecycleValidator {
     }
 
     #[must_use]
+    #[allow(clippy::unnested_or_patterns)]
     pub fn validate_phase_transition(from: McpLifecyclePhase, to: McpLifecyclePhase) -> bool {
         match (from, to) {
             (McpLifecyclePhase::ConfigLoad, McpLifecyclePhase::ServerRegistration)
@@ -599,7 +597,10 @@ mod tests {
             ));
 
             match result {
-                McpPhaseResult::Failure { phase: failed_phase, error } => {
+                McpPhaseResult::Failure {
+                    phase: failed_phase,
+                    error,
+                } => {
                     assert_eq!(failed_phase, phase);
                     assert_eq!(error.phase, phase);
                     assert_eq!(
