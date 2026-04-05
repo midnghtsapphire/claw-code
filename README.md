@@ -30,12 +30,66 @@
   <a href="https://discord.gg/6ztZB9jvWq">UltraWorkers Discord</a>
 </p>
 
-> [!IMPORTANT]
-> The active Rust workspace now lives in [`rust/`](./rust). Start with [`USAGE.md`](./USAGE.md) for build, auth, CLI, session, and parity-harness workflows, then use [`rust/README.md`](./rust/README.md) for crate-level details.
-
 > Want the bigger idea behind this repo? Read [`PHILOSOPHY.md`](./PHILOSOPHY.md) and Sigrid Jin's public explanation: https://x.com/realsigridjin/status/2039472968624185713
 
 > Shout-out to the UltraWorkers ecosystem powering this repo: [clawhip](https://github.com/Yeachan-Heo/clawhip), [oh-my-openagent](https://github.com/code-yeongyu/oh-my-openagent), [oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode), [oh-my-codex](https://github.com/Yeachan-Heo/oh-my-codex), and the [UltraWorkers Discord](https://discord.gg/6ztZB9jvWq).
+
+---
+
+## Active Workspace — Rust CLI
+
+The canonical implementation lives in [`rust/`](./rust). It is a 9-crate Rust workspace containing the full `claw` CLI binary, runtime, API client, tool dispatch, MCP lifecycle, LSP client, plugin management, and telemetry.
+
+**Quick start:**
+
+```bash
+# Build
+cd rust && cargo build -p rusty-claude-cli --release
+
+# Run
+./target/release/rusty-claude-cli --help   # or: claw --help after installing
+
+# Verify (format + lint + tests)
+cd rust
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+```
+
+See [`USAGE.md`](./USAGE.md) for build, auth, CLI, session, and parity-harness workflows.  
+See [`rust/README.md`](./rust/README.md) for crate-level details.
+
+## Repository Layout
+
+```text
+.
+├── rust/                    # Active Rust workspace (canonical)
+│   ├── Cargo.toml           # Workspace manifest
+│   └── crates/
+│       ├── api/             # Anthropic API client + streaming
+│       ├── commands/        # Slash command dispatch
+│       ├── compat-harness/  # Compatibility shim for parity testing
+│       ├── mock-anthropic-service/ # Deterministic mock for tests
+│       ├── plugins/         # Plugin install/enable/disable lifecycle
+│       ├── runtime/         # Core runtime (session, MCP, permissions, file ops)
+│       ├── rusty-claude-cli/ # CLI binary entrypoint + integration tests
+│       ├── telemetry/       # Usage and cost tracking
+│       └── tools/           # Tool dispatch (40 tool specs)
+├── src/                     # Python porting workspace (historical context — see below)
+├── tests/                   # Python workspace tests (79 passing)
+├── docs/claw-code/          # Project documentation
+│   ├── REPOSITORY_OVERVIEW.md
+│   ├── STANDARDS_REVIEW.md
+│   ├── SCRUM_PROJECT_PLAN.md
+│   ├── CHANGE_PROPOSAL.md
+│   ├── STANDARDS_FORTIFICATION.md
+│   ├── BLUE_OCEAN_OPPORTUNITIES.md
+│   └── TEST_COVERAGE_PLAN.md
+├── PHILOSOPHY.md            # The "humans direct, claws execute" manifesto
+├── ROADMAP.md               # 5-phase roadmap + P0–P3 backlog
+├── PARITY.md                # 9-lane parity checkpoint
+└── USAGE.md                 # Build, auth, CLI, session, harness workflows
+```
 
 ---
 
@@ -57,95 +111,23 @@ https://x.com/realsigridjin/status/2039472968624185713
 
 ---
 
-## Porting Status
+## Python Workspace (Historical Context)
 
-The main source tree is now Python-first.
+The `src/` tree is a Python porting workspace created during an earlier phase of the project when the primary goal was parity analysis against the original TypeScript source. It remains active as a verification surface and research artifact.
 
-- `src/` contains the active Python porting workspace
-- `tests/` verifies the current Python workspace
-- the exposed snapshot is no longer part of the tracked repository state
+- `src/` contains the Python porting workspace (150+ commands, 100+ tools mirrored)
+- `tests/` verifies the Python workspace (79 passing unit + integration tests)
+- The Python workspace is **not** the canonical implementation — the Rust workspace in `rust/` is
 
-The current Python workspace is not yet a complete one-to-one replacement for the original system, but the primary implementation surface is now Python.
-
-## Why this rewrite exists
-
-I originally studied the exposed codebase to understand its harness, tool wiring, and agent workflow. After spending more time with the legal and ethical questions—and after reading the essay linked below—I did not want the exposed snapshot itself to remain the main tracked source tree.
-
-This repository now focuses on Python porting work instead.
-
-## Repository Layout
-
-```text
-.
-├── src/                                # Python porting workspace
-│   ├── __init__.py
-│   ├── commands.py
-│   ├── main.py
-│   ├── models.py
-│   ├── port_manifest.py
-│   ├── query_engine.py
-│   ├── task.py
-│   └── tools.py
-├── tests/                              # Python verification
-├── assets/omx/                         # OmX workflow screenshots
-├── 2026-03-09-is-legal-the-same-as-legitimate-ai-reimplementation-and-the-erosion-of-copyleft.md
-└── README.md
-```
-
-## Python Workspace Overview
-
-The new Python `src/` tree currently provides:
-
-- **`port_manifest.py`** — summarizes the current Python workspace structure
-- **`models.py`** — dataclasses for subsystems, modules, and backlog state
-- **`commands.py`** — Python-side command port metadata
-- **`tools.py`** — Python-side tool port metadata
-- **`query_engine.py`** — renders a Python porting summary from the active workspace
-- **`main.py`** — a CLI entrypoint for manifest and summary output
-
-## Quickstart
-
-Render the Python porting summary:
+For Python workspace usage:
 
 ```bash
+# Run the porting summary
 python3 -m src.main summary
-```
 
-Print the current Python workspace manifest:
-
-```bash
-python3 -m src.main manifest
-```
-
-List the current Python modules:
-
-```bash
-python3 -m src.main subsystems --limit 16
-```
-
-Run verification:
-
-```bash
+# Run all Python tests
 python3 -m unittest discover -s tests -v
 ```
-
-Run the parity audit against the local ignored archive (when present):
-
-```bash
-python3 -m src.main parity-audit
-```
-
-Inspect mirrored command/tool inventories:
-
-```bash
-python3 -m src.main commands --limit 10
-python3 -m src.main tools --limit 10
-```
-
-## Current Parity Checkpoint
-
-The port now mirrors the archived root-entry file surface, top-level subsystem names, and command/tool inventories much more closely than before. However, it is **not yet** a full runtime-equivalent replacement for the original TypeScript system; the Python tree still contains fewer executable runtime slices than the archived source.
-
 
 ## Built with `oh-my-codex`
 

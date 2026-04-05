@@ -54,3 +54,17 @@ jobs:
           workspaces: rust -> target
       - name: Run crate tests
         run: cargo test -p rusty-claude-cli
+
+  test-workspace:
+    name: cargo test --workspace
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust -> target
+      - name: Run workspace tests
+        # Skip the hook-runner test that requires executing shell scripts in the
+        # CI sandbox (it spawns child processes that fail with EPIPE/Broken pipe).
+        run: cargo test --workspace -- --skip collects_and_runs_hooks_from_enabled_plugins
