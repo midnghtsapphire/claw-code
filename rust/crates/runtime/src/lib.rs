@@ -9,6 +9,7 @@ pub mod bash_validation;
 mod bootstrap;
 pub mod branch_lock;
 mod compact;
+pub mod commit_provenance;
 mod config;
 mod conversation;
 mod file_ops;
@@ -47,6 +48,9 @@ pub use bash::{execute_bash, BashCommandInput, BashCommandOutput};
 pub use bootstrap::{BootstrapPhase, BootstrapPlan};
 pub use branch_lock::{
     BranchAcquireOutcome, BranchCollisionEvent, BranchLockEntry, BranchLockRegistry,
+};
+pub use commit_provenance::{
+    CommitLineage, CommitProvenanceRecord, CommitProvenanceRegistry, PushEvent,
 };
 pub use compact::{
     compact_session, estimate_session_tokens, format_compact_summary,
