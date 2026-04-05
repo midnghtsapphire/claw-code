@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `rust/crates/runtime/tests/mcp_degraded_startup.rs` — 7 integration tests for MCP degraded-startup path: partial/all-server failure, timeout recoverability, JSON round-trip, deduplication (E4-5)
+- `rust/crates/runtime/tests/mcp_lifecycle_e2e.rs` — 8 end-to-end MCP lifecycle tests: full happy path, tool-only discovery, repeated invocation cycle, non-recoverable failure forcing shutdown, recoverable timeout, invalid start phase, plugin-healthcheck wiring, timestamp monotonicity (E6-2)
+- `rust/crates/runtime/tests/plugin_config_validation.rs` — 11 plugin config validation tests covering default state, enable/disable API, JSON parsing, `PluginLifecycle::validate_config` trait contract, config precedence chain, and PluginHealthcheck wiring (E6-1)
+- `docs/claw-code/PLUGIN_CONFIG_SPEC.md` — authoritative plugin configuration contract spec: field reference, JSON shape, precedence rules, `PluginLifecycle` validation contract, test coverage table (E6-1)
 - `tests/test_dispatch.py` — 74 unit tests for tool dispatch, command dispatch, `ToolPermissionContext` filtering, and `ExecutionRegistry` wiring (E4-4)
 - `docs/claw-code/CONTAINER_WORKFLOW.md` — Docker/Podman commands for build, test, and run including cross-compilation, volume mounting, and troubleshooting (E5-2)
 - `docs/claw-code/` directory with comprehensive project documentation:
