@@ -11,6 +11,9 @@ permissions:
 jobs:
   changelog:
     name: Prepend unreleased entry
+    # Only run on the actual main branch push — not on PR branches or when
+    # GitHub triggers a "new workflow file" run on a feature branch.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
