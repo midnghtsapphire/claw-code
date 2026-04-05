@@ -59,7 +59,9 @@ impl Default for ControlPlane {
 /// Acquire a `Mutex` lock, recovering from poison errors by consuming the guard.
 /// This follows the project-wide pattern and keeps call sites concise.
 fn lock_or_recover<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    mutex
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 // ---------------------------------------------------------------------------
@@ -106,7 +108,12 @@ fn parse_request(stream: &TcpStream) -> Option<Request> {
         reader.read_exact(&mut body).ok()?;
     }
 
-    Some(Request { method, path, query, body })
+    Some(Request {
+        method,
+        path,
+        query,
+        body,
+    })
 }
 
 fn send_response(mut stream: TcpStream, status: u16, value: Value) {
@@ -252,8 +259,7 @@ fn handle_create_worker(plane: &ControlPlane, body: &[u8]) -> (u16, Value) {
     }
     let payload: CreateWorker = serde_json::from_slice(body).unwrap_or_default();
     let cwd = payload.cwd.unwrap_or_else(|| {
-        std::env::current_dir()
-            .map_or_else(|_| ".".to_string(), |p| p.display().to_string())
+        std::env::current_dir().map_or_else(|_| ".".to_string(), |p| p.display().to_string())
     });
 
     let worker = lock_or_recover(&plane.workers).create(&cwd, &[], false);

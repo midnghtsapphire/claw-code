@@ -383,3 +383,120 @@ fn worker_provider_failure_flows_through_recovery_to_policy() {
         "post-recovery green+approved lane should be merge-ready"
     );
 }
+
+/// E4-1: Full three-module chain — stale_branch → recovery_recipes → policy_engine
+///
+/// Scenario: A branch is detected as stale. The recovery recipe fires (RebaseBranch +
+/// CleanBuild). On success the post-recovery lane context satisfies the policy engine's
+/// merge rule. On second attempt (already exhausted) the policy engine receives an
+/// escalation signal and emits a Block action.
+#[test]
+fn stale_branch_flows_through_recovery_to_policy_engine_on_success() {
+    use runtime::recovery_recipes::{
+        attempt_recovery, FailureScenario, RecoveryContext, RecoveryResult,
+    };
+
+    // 1. stale_branch module: detect freshness and apply branch policy
+    let stale = BranchFreshness::Stale {
+        commits_behind: 3,
+        missing_fixes: vec!["fix-999".to_string()],
+    };
+    let branch_action = apply_policy(&stale, StaleBranchPolicy::AutoRebase);
+    assert_eq!(
+        branch_action,
+        StaleBranchAction::Rebase,
+        "auto-rebase policy should produce Rebase action"
+    );
+
+    // 2. recovery_recipes module: look up and execute the StaleBranch recipe
+    let mut ctx = RecoveryContext::new();
+    let result = attempt_recovery(&FailureScenario::StaleBranch, &mut ctx);
+    assert!(
+        matches!(result, RecoveryResult::Recovered { steps_taken: 2 }),
+        "StaleBranch should recover via RebaseBranch + CleanBuild, got: {result:?}"
+    );
+
+    // 3. policy_engine module: post-recovery lane is fresh + green → merge
+    let post_recovery_context = LaneContext::new(
+        "stale-recovered-lane",
+        3,                      // Workspace green
+        Duration::from_secs(0), // freshly rebased — zero stale time
+        LaneBlocker::None,
+        ReviewStatus::Approved,
+        DiffScope::Scoped,
+        false,
+    );
+    let engine = PolicyEngine::new(vec![PolicyRule::new(
+        "merge-after-rebase",
+        PolicyCondition::And(vec![
+            PolicyCondition::GreenAt { level: 3 },
+            PolicyCondition::ReviewPassed,
+        ]),
+        PolicyAction::MergeToDev,
+        5,
+    )]);
+
+    let actions = engine.evaluate(&post_recovery_context);
+    assert_eq!(
+        actions,
+        vec![PolicyAction::MergeToDev],
+        "post-recovery fresh lane should be eligible for merge"
+    );
+}
+
+/// E4-1: Three-module chain — stale_branch recovery exhausted → policy escalates
+///
+/// When the StaleBranch recipe has already been attempted once, a second call
+/// returns EscalationRequired. The policy engine then triggers a Block/Escalate action.
+#[test]
+fn stale_branch_recovery_exhausted_causes_policy_escalation() {
+    use runtime::recovery_recipes::{
+        attempt_recovery, FailureScenario, RecoveryContext, RecoveryResult,
+    };
+
+    // Burn the single allowed attempt
+    let mut ctx = RecoveryContext::new();
+    let first = attempt_recovery(&FailureScenario::StaleBranch, &mut ctx);
+    assert!(
+        matches!(first, RecoveryResult::Recovered { .. }),
+        "first attempt should recover, got: {first:?}"
+    );
+
+    // Second attempt — max_attempts = 1, so escalation is required
+    let second = attempt_recovery(&FailureScenario::StaleBranch, &mut ctx);
+    assert!(
+        matches!(second, RecoveryResult::EscalationRequired { .. }),
+        "second attempt should require escalation, got: {second:?}"
+    );
+
+    // Policy engine: still stale (rebase failed) + startup blocked → escalate
+    let still_stale_context = LaneContext::new(
+        "stale-unrecovered-lane",
+        0,                                // not green
+        Duration::from_secs(3 * 60 * 60), // 3 hours stale
+        LaneBlocker::Startup,
+        ReviewStatus::Pending,
+        DiffScope::Full,
+        false,
+    );
+    let engine = PolicyEngine::new(vec![PolicyRule::new(
+        "block-unrecoverable-stale",
+        PolicyCondition::And(vec![
+            PolicyCondition::StaleBranch,
+            PolicyCondition::StartupBlocked,
+        ]),
+        PolicyAction::Escalate {
+            reason: "stale branch recovery exhausted".to_string(),
+        },
+        1,
+    )]);
+
+    let actions = engine.evaluate(&still_stale_context);
+    assert_eq!(
+        actions,
+        vec![PolicyAction::Escalate {
+            reason: "stale branch recovery exhausted".to_string(),
+        }],
+        "exhausted-recovery stale lane should escalate"
+    );
+}

@@ -32,8 +32,9 @@ use api::{
 };
 
 use commands::{
-    handle_agents_slash_command, handle_mcp_slash_command, handle_plugins_slash_command,
-    handle_skills_slash_command, render_slash_command_help, resume_supported_slash_commands,
+    handle_agents_slash_command, handle_agents_slash_command_json, handle_mcp_slash_command,
+    handle_mcp_slash_command_json, handle_plugins_slash_command, handle_skills_slash_command,
+    handle_skills_slash_command_json, render_slash_command_help, resume_supported_slash_commands,
     slash_command_specs, validate_slash_command_input, SlashCommand,
 };
 use compat_harness::{extract_manifest, UpstreamPaths};
@@ -111,9 +112,18 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     match parse_args(&args)? {
         CliAction::DumpManifests => dump_manifests(),
         CliAction::BootstrapPlan => print_bootstrap_plan(),
-        CliAction::Agents { args } => LiveCli::print_agents(args.as_deref())?,
-        CliAction::Mcp { args } => LiveCli::print_mcp(args.as_deref())?,
-        CliAction::Skills { args } => LiveCli::print_skills(args.as_deref())?,
+        CliAction::Agents {
+            args,
+            output_format,
+        } => LiveCli::print_agents(args.as_deref(), output_format)?,
+        CliAction::Mcp {
+            args,
+            output_format,
+        } => LiveCli::print_mcp(args.as_deref(), output_format)?,
+        CliAction::Skills {
+            args,
+            output_format,
+        } => LiveCli::print_skills(args.as_deref(), output_format)?,
         CliAction::PrintSystemPrompt { cwd, date } => print_system_prompt(cwd, date),
         CliAction::Version => print_version(),
         CliAction::ResumeSession {
@@ -160,12 +170,15 @@ enum CliAction {
     BootstrapPlan,
     Agents {
         args: Option<String>,
+        output_format: CliOutputFormat,
     },
     Mcp {
         args: Option<String>,
+        output_format: CliOutputFormat,
     },
     Skills {
         args: Option<String>,
+        output_format: CliOutputFormat,
     },
     PrintSystemPrompt {
         cwd: PathBuf,
@@ -364,7 +377,8 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
     if rest.first().map(String::as_str) == Some("--resume") {
         return parse_resume_args(&rest[1..]);
     }
-    if let Some(action) = parse_single_word_command_alias(&rest, &model, permission_mode_override, output_format)
+    if let Some(action) =
+        parse_single_word_command_alias(&rest, &model, permission_mode_override, output_format)
     {
         return action;
     }
@@ -376,12 +390,15 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
         "bootstrap-plan" => Ok(CliAction::BootstrapPlan),
         "agents" => Ok(CliAction::Agents {
             args: join_optional_args(&rest[1..]),
+            output_format,
         }),
         "mcp" => Ok(CliAction::Mcp {
             args: join_optional_args(&rest[1..]),
+            output_format,
         }),
         "skills" => Ok(CliAction::Skills {
             args: join_optional_args(&rest[1..]),
+            output_format,
         }),
         "system-prompt" => parse_system_prompt_args(&rest[1..]),
         "login" => Ok(CliAction::Login),
@@ -481,7 +498,10 @@ fn parse_direct_slash_cli_action(rest: &[String]) -> Result<CliAction, String> {
     let raw = rest.join(" ");
     match SlashCommand::parse(&raw) {
         Ok(Some(SlashCommand::Help)) => Ok(CliAction::Help),
-        Ok(Some(SlashCommand::Agents { args })) => Ok(CliAction::Agents { args }),
+        Ok(Some(SlashCommand::Agents { args })) => Ok(CliAction::Agents {
+            args,
+            output_format: CliOutputFormat::Text,
+        }),
         Ok(Some(SlashCommand::Mcp { action, target })) => Ok(CliAction::Mcp {
             args: match (action, target) {
                 (None, None) => None,
@@ -489,8 +509,12 @@ fn parse_direct_slash_cli_action(rest: &[String]) -> Result<CliAction, String> {
                 (Some(action), Some(target)) => Some(format!("{action} {target}")),
                 (None, Some(target)) => Some(target),
             },
+            output_format: CliOutputFormat::Text,
         }),
-        Ok(Some(SlashCommand::Skills { args })) => Ok(CliAction::Skills { args }),
+        Ok(Some(SlashCommand::Skills { args })) => Ok(CliAction::Skills {
+            args,
+            output_format: CliOutputFormat::Text,
+        }),
         Ok(Some(SlashCommand::Unknown(name))) => Err(format_unknown_direct_slash_command(&name)),
         Ok(Some(command)) => Err({
             let _ = command;
@@ -1846,37 +1870,38 @@ impl RuntimeMcpState {
             .into_iter()
             .filter(|server_name| !failed_server_names.contains(server_name))
             .collect::<Vec<_>>();
-        let failed_servers = discovery
-            .failed_servers
-            .iter()
-            .map(|failure| runtime::McpFailedServer {
-                server_name: failure.server_name.clone(),
-                phase: runtime::McpLifecyclePhase::ToolDiscovery,
-                error: runtime::McpErrorSurface::new(
-                    runtime::McpLifecyclePhase::ToolDiscovery,
-                    Some(failure.server_name.clone()),
-                    failure.error.clone(),
-                    std::collections::BTreeMap::new(),
-                    true,
-                ),
-            })
-            .chain(discovery.unsupported_servers.iter().map(|server| {
-                runtime::McpFailedServer {
-                    server_name: server.server_name.clone(),
-                    phase: runtime::McpLifecyclePhase::ServerRegistration,
+        let failed_servers =
+            discovery
+                .failed_servers
+                .iter()
+                .map(|failure| runtime::McpFailedServer {
+                    server_name: failure.server_name.clone(),
+                    phase: runtime::McpLifecyclePhase::ToolDiscovery,
                     error: runtime::McpErrorSurface::new(
-                        runtime::McpLifecyclePhase::ServerRegistration,
-                        Some(server.server_name.clone()),
-                        server.reason.clone(),
-                        std::collections::BTreeMap::from([(
-                            "transport".to_string(),
-                            format!("{:?}", server.transport).to_ascii_lowercase(),
-                        )]),
-                        false,
+                        runtime::McpLifecyclePhase::ToolDiscovery,
+                        Some(failure.server_name.clone()),
+                        failure.error.clone(),
+                        std::collections::BTreeMap::new(),
+                        true,
                     ),
-                }
-            }))
-            .collect::<Vec<_>>();
+                })
+                .chain(discovery.unsupported_servers.iter().map(|server| {
+                    runtime::McpFailedServer {
+                        server_name: server.server_name.clone(),
+                        phase: runtime::McpLifecyclePhase::ServerRegistration,
+                        error: runtime::McpErrorSurface::new(
+                            runtime::McpLifecyclePhase::ServerRegistration,
+                            Some(server.server_name.clone()),
+                            server.reason.clone(),
+                            std::collections::BTreeMap::from([(
+                                "transport".to_string(),
+                                format!("{:?}", server.transport).to_ascii_lowercase(),
+                            )]),
+                            false,
+                        ),
+                    }
+                }))
+                .collect::<Vec<_>>();
         let degraded_report = (!failed_servers.is_empty()).then(|| {
             runtime::McpDegradedReport::new(
                 working_servers,
@@ -2445,7 +2470,7 @@ impl LiveCli {
                     (Some(action), Some(target)) => Some(format!("{action} {target}")),
                     (None, Some(target)) => Some(target.to_string()),
                 };
-                Self::print_mcp(args.as_deref())?;
+                Self::print_mcp(args.as_deref(), CliOutputFormat::Text)?;
                 false
             }
             SlashCommand::Memory => {
@@ -2475,11 +2500,11 @@ impl LiveCli {
                 self.handle_plugins_command(action.as_deref(), target.as_deref())?
             }
             SlashCommand::Agents { args } => {
-                Self::print_agents(args.as_deref())?;
+                Self::print_agents(args.as_deref(), CliOutputFormat::Text)?;
                 false
             }
             SlashCommand::Skills { args } => {
-                Self::print_skills(args.as_deref())?;
+                Self::print_skills(args.as_deref(), CliOutputFormat::Text)?;
                 false
             }
             SlashCommand::Doctor
@@ -2754,21 +2779,39 @@ impl LiveCli {
         Ok(())
     }
 
-    fn print_agents(args: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+    fn print_agents(
+        args: Option<&str>,
+        output_format: CliOutputFormat,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let cwd = env::current_dir()?;
-        println!("{}", handle_agents_slash_command(args, &cwd)?);
+        match output_format {
+            CliOutputFormat::Text => println!("{}", handle_agents_slash_command(args, &cwd)?),
+            CliOutputFormat::Json => println!("{}", handle_agents_slash_command_json(&cwd)?),
+        }
         Ok(())
     }
 
-    fn print_mcp(args: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+    fn print_mcp(
+        args: Option<&str>,
+        output_format: CliOutputFormat,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let cwd = env::current_dir()?;
-        println!("{}", handle_mcp_slash_command(args, &cwd)?);
+        match output_format {
+            CliOutputFormat::Text => println!("{}", handle_mcp_slash_command(args, &cwd)?),
+            CliOutputFormat::Json => println!("{}", handle_mcp_slash_command_json(&cwd)?),
+        }
         Ok(())
     }
 
-    fn print_skills(args: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+    fn print_skills(
+        args: Option<&str>,
+        output_format: CliOutputFormat,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let cwd = env::current_dir()?;
-        println!("{}", handle_skills_slash_command(args, &cwd)?);
+        match output_format {
+            CliOutputFormat::Text => println!("{}", handle_skills_slash_command(args, &cwd)?),
+            CliOutputFormat::Json => println!("{}", handle_skills_slash_command_json(&cwd)?),
+        }
         Ok(())
     }
 
@@ -3585,7 +3628,8 @@ fn run_doctor_checks() -> Vec<DoctorCheck> {
     });
 
     // Check 3: CLAUDE.md / claw project file
-    let has_claude_md = cwd.join("CLAUDE.md").is_file() || cwd.join(".claude").join("CLAUDE.md").is_file();
+    let has_claude_md =
+        cwd.join("CLAUDE.md").is_file() || cwd.join(".claude").join("CLAUDE.md").is_file();
     checks.push(DoctorCheck {
         name: "project-file".to_string(),
         status: if has_claude_md {
@@ -3601,7 +3645,9 @@ fn run_doctor_checks() -> Vec<DoctorCheck> {
     });
 
     // Check 4: Sandbox status
-    let runtime_config = loader.load().unwrap_or_else(|_| runtime::RuntimeConfig::empty());
+    let runtime_config = loader
+        .load()
+        .unwrap_or_else(|_| runtime::RuntimeConfig::empty());
     let sandbox = resolve_sandbox_status(runtime_config.sandbox(), &cwd);
     checks.push(DoctorCheck {
         name: "sandbox".to_string(),
@@ -3636,8 +3682,14 @@ fn run_doctor_checks() -> Vec<DoctorCheck> {
 }
 
 fn format_doctor_report(checks: &[DoctorCheck]) -> String {
-    let errors = checks.iter().filter(|c| c.status == DoctorCheckStatus::Error).count();
-    let warnings = checks.iter().filter(|c| c.status == DoctorCheckStatus::Warning).count();
+    let errors = checks
+        .iter()
+        .filter(|c| c.status == DoctorCheckStatus::Error)
+        .count();
+    let warnings = checks
+        .iter()
+        .filter(|c| c.status == DoctorCheckStatus::Warning)
+        .count();
     let overall = if errors > 0 {
         "issues found"
     } else if warnings > 0 {
@@ -3662,14 +3714,23 @@ fn format_doctor_report(checks: &[DoctorCheck]) -> String {
     }
     if errors == 0 && warnings == 0 {
         lines.push(String::new());
-        lines.push("  Next             Start the REPL with `claw` or run a prompt with `claw <prompt>`".to_string());
+        lines.push(
+            "  Next             Start the REPL with `claw` or run a prompt with `claw <prompt>`"
+                .to_string(),
+        );
     }
     lines.join("\n")
 }
 
 fn format_doctor_json(checks: &[DoctorCheck]) -> serde_json::Value {
-    let errors = checks.iter().filter(|c| c.status == DoctorCheckStatus::Error).count();
-    let warnings = checks.iter().filter(|c| c.status == DoctorCheckStatus::Warning).count();
+    let errors = checks
+        .iter()
+        .filter(|c| c.status == DoctorCheckStatus::Error)
+        .count();
+    let warnings = checks
+        .iter()
+        .filter(|c| c.status == DoctorCheckStatus::Warning)
+        .count();
     json!({
         "overall": if errors > 0 { "error" } else if warnings > 0 { "warning" } else { "ok" },
         "errors": errors,
@@ -3682,9 +3743,7 @@ fn format_doctor_json(checks: &[DoctorCheck]) -> serde_json::Value {
     })
 }
 
-fn print_doctor_snapshot(
-    output_format: CliOutputFormat,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn print_doctor_snapshot(output_format: CliOutputFormat) -> Result<(), Box<dyn std::error::Error>> {
     let checks = run_doctor_checks();
     match output_format {
         CliOutputFormat::Text => println!("{}", format_doctor_report(&checks)),
@@ -5923,7 +5982,10 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
     writeln!(out, "  claw sandbox")?;
     writeln!(out, "      Show the current sandbox isolation snapshot")?;
     writeln!(out, "  claw doctor")?;
-    writeln!(out, "      Run health checks (auth, config, CLAUDE.md, sandbox, sessions)")?;
+    writeln!(
+        out,
+        "      Run health checks (auth, config, CLAUDE.md, sandbox, sessions)"
+    )?;
     writeln!(out, "  claw webhook [--port N] [--secret TOKEN]")?;
     writeln!(out, "      AI-Native CI/CD: receive GitHub Actions events, classify failures, and output recovery recommendations")?;
     writeln!(out, "  claw serve [--port N]")?;
@@ -6406,21 +6468,31 @@ mod tests {
         );
         assert_eq!(
             parse_args(&["agents".to_string()]).expect("agents should parse"),
-            CliAction::Agents { args: None }
+            CliAction::Agents {
+                args: None,
+                output_format: CliOutputFormat::Text
+            }
         );
         assert_eq!(
             parse_args(&["mcp".to_string()]).expect("mcp should parse"),
-            CliAction::Mcp { args: None }
+            CliAction::Mcp {
+                args: None,
+                output_format: CliOutputFormat::Text
+            }
         );
         assert_eq!(
             parse_args(&["skills".to_string()]).expect("skills should parse"),
-            CliAction::Skills { args: None }
+            CliAction::Skills {
+                args: None,
+                output_format: CliOutputFormat::Text
+            }
         );
         assert_eq!(
             parse_args(&["agents".to_string(), "--help".to_string()])
                 .expect("agents help should parse"),
             CliAction::Agents {
-                args: Some("--help".to_string())
+                args: Some("--help".to_string()),
+                output_format: CliOutputFormat::Text,
             }
         );
     }
@@ -6481,24 +6553,32 @@ mod tests {
     fn parses_direct_agents_mcp_and_skills_slash_commands() {
         assert_eq!(
             parse_args(&["/agents".to_string()]).expect("/agents should parse"),
-            CliAction::Agents { args: None }
+            CliAction::Agents {
+                args: None,
+                output_format: CliOutputFormat::Text
+            }
         );
         assert_eq!(
             parse_args(&["/mcp".to_string(), "show".to_string(), "demo".to_string()])
                 .expect("/mcp show demo should parse"),
             CliAction::Mcp {
-                args: Some("show demo".to_string())
+                args: Some("show demo".to_string()),
+                output_format: CliOutputFormat::Text,
             }
         );
         assert_eq!(
             parse_args(&["/skills".to_string()]).expect("/skills should parse"),
-            CliAction::Skills { args: None }
+            CliAction::Skills {
+                args: None,
+                output_format: CliOutputFormat::Text
+            }
         );
         assert_eq!(
             parse_args(&["/skills".to_string(), "help".to_string()])
                 .expect("/skills help should parse"),
             CliAction::Skills {
-                args: Some("help".to_string())
+                args: Some("help".to_string()),
+                output_format: CliOutputFormat::Text,
             }
         );
         assert_eq!(
@@ -6509,7 +6589,8 @@ mod tests {
             ])
             .expect("/skills install should parse"),
             CliAction::Skills {
-                args: Some("install ./fixtures/help-skill".to_string())
+                args: Some("install ./fixtures/help-skill".to_string()),
+                output_format: CliOutputFormat::Text,
             }
         );
         let error = parse_args(&["/status".to_string()])
@@ -7891,8 +7972,12 @@ UU conflicted.rs",
         let runtime_config = loader.load().expect("runtime config should load");
         let state = build_runtime_plugin_state_with_loader(&workspace, &loader, &runtime_config)
             .expect("runtime plugin state should load");
-        let mut executor =
-            CliToolExecutor::new(None, false, state.tool_registry.clone(), state.mcp_state.clone());
+        let mut executor = CliToolExecutor::new(
+            None,
+            false,
+            state.tool_registry.clone(),
+            state.mcp_state.clone(),
+        );
 
         let search_output = executor
             .execute("ToolSearch", r#"{"query":"remote","max_results":5}"#)

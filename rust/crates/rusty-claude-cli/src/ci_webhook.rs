@@ -12,9 +12,7 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use runtime::{
-    recipe_for, FailureScenario, RecoveryRecipe, RecoveryResult,
-};
+use runtime::{recipe_for, FailureScenario, RecoveryRecipe, RecoveryResult};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -79,12 +77,7 @@ pub fn classify_event(event: &GitHubActionEvent) -> Vec<FailureScenario> {
         .workflow_run
         .as_ref()
         .and_then(|r| r.name.as_deref())
-        .or_else(|| {
-            event
-                .check_run
-                .as_ref()
-                .and_then(|c| c.name.as_deref())
-        })
+        .or_else(|| event.check_run.as_ref().and_then(|c| c.name.as_deref()))
         .unwrap_or_default()
         .to_ascii_lowercase();
 
@@ -171,10 +164,7 @@ pub fn classify_event(event: &GitHubActionEvent) -> Vec<FailureScenario> {
 
 /// Build the JSON response body for a CI diagnosis.
 #[must_use]
-pub fn build_diagnosis_response(
-    event: &GitHubActionEvent,
-    scenarios: &[FailureScenario],
-) -> Value {
+pub fn build_diagnosis_response(event: &GitHubActionEvent, scenarios: &[FailureScenario]) -> Value {
     let run_url = event
         .workflow_run
         .as_ref()
@@ -298,7 +288,9 @@ pub fn run_webhook_server(
 }
 
 fn handle_webhook_connection(stream: TcpStream, _secret: Option<&str>) {
-    let peer = stream.peer_addr().map_or_else(|_| "?".to_string(), |a| a.to_string());
+    let peer = stream
+        .peer_addr()
+        .map_or_else(|_| "?".to_string(), |a| a.to_string());
 
     let Some((event_type, body)) = parse_http_request(&stream) else {
         send_http_response(stream, 400, r#"{"error":"could not parse request"}"#);
@@ -308,7 +300,10 @@ fn handle_webhook_connection(stream: TcpStream, _secret: Option<&str>) {
     let body_str = String::from_utf8_lossy(&body);
 
     // Only process workflow_run and check_run events
-    if !matches!(event_type.as_str(), "workflow_run" | "check_run" | "push" | "unknown") {
+    if !matches!(
+        event_type.as_str(),
+        "workflow_run" | "check_run" | "push" | "unknown"
+    ) {
         let resp = serde_json::to_string(&json!({"skipped": true, "event": event_type}))
             .unwrap_or_else(|_| "{}".to_string());
         send_http_response(stream, 200, &resp);
@@ -318,8 +313,9 @@ fn handle_webhook_connection(stream: TcpStream, _secret: Option<&str>) {
     let event: GitHubActionEvent = match serde_json::from_str(&body_str) {
         Ok(e) => e,
         Err(err) => {
-            let resp = serde_json::to_string(&json!({"error": format!("json parse failed: {err}")}))
-                .unwrap_or_else(|_| "{}".to_string());
+            let resp =
+                serde_json::to_string(&json!({"error": format!("json parse failed: {err}")}))
+                    .unwrap_or_else(|_| "{}".to_string());
             send_http_response(stream, 400, &resp);
             return;
         }
@@ -390,7 +386,8 @@ mod tests {
 
     #[test]
     fn classify_stale_branch_by_check_summary() {
-        let event = make_check_run_event("failure", "CI", "This branch is stale and needs a rebase");
+        let event =
+            make_check_run_event("failure", "CI", "This branch is stale and needs a rebase");
         let scenarios = classify_event(&event);
         assert!(scenarios.contains(&FailureScenario::StaleBranch));
     }
@@ -417,7 +414,10 @@ mod tests {
             "error[E0507]: cannot move out of a shared reference",
         );
         let scenarios = classify_event(&event);
-        let compile_count = scenarios.iter().filter(|s| **s == FailureScenario::CompileRedCrossCrate).count();
+        let compile_count = scenarios
+            .iter()
+            .filter(|s| **s == FailureScenario::CompileRedCrossCrate)
+            .count();
         assert_eq!(compile_count, 1);
     }
 
@@ -437,7 +437,9 @@ mod tests {
         let event = make_workflow_event("failure", "cargo build");
         let scenarios = classify_event(&event);
         let response = build_diagnosis_response(&event, &scenarios);
-        let recipes = response["recovery_recipes"].as_array().expect("recipes array");
+        let recipes = response["recovery_recipes"]
+            .as_array()
+            .expect("recipes array");
         for recipe in recipes {
             assert!(recipe["steps"].is_array());
             assert!(recipe["scenario"].is_string());
