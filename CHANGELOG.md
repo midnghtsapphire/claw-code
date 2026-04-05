@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `rust/crates/runtime/src/branch_lock.rs` — `BranchLockRegistry`, `BranchCollisionEvent`, `BranchAcquireOutcome`, `BranchLockEntry`: thread-safe branch-lock detection for parallel swarm workers; collision emits structured event before spawn (E7-1)
+- `rust/crates/runtime/tests/branch_lock_detection.rs` — 12 integration tests: first-acquire success, collision event fields, synchronous detection before spawn, release semantics, wrong-worker release rejection, independent branch isolation, N-worker race (only first wins), re-acquire after release, JSON round-trip, lock_count tracking, all_locks snapshot, human-readable collision message (E7-1)
+- `rust/crates/runtime/tests/session_compaction.rs` — 13 session compaction tests against known token thresholds: below/at/above threshold boundary conditions, token estimate decreases, tail preservation, double-compaction summary merging, empty session, single-message no-op, tool-use counting, System-role injection, custom configs, linear scaling (E6-3)
 - `rust/crates/runtime/tests/mcp_degraded_startup.rs` — 7 integration tests for MCP degraded-startup path: partial/all-server failure, timeout recoverability, JSON round-trip, deduplication (E4-5)
 - `rust/crates/runtime/tests/mcp_lifecycle_e2e.rs` — 8 end-to-end MCP lifecycle tests: full happy path, tool-only discovery, repeated invocation cycle, non-recoverable failure forcing shutdown, recoverable timeout, invalid start phase, plugin-healthcheck wiring, timestamp monotonicity (E6-2)
 - `rust/crates/runtime/tests/plugin_config_validation.rs` — 11 plugin config validation tests covering default state, enable/disable API, JSON parsing, `PluginLifecycle::validate_config` trait contract, config precedence chain, and PluginHealthcheck wiring (E6-1)

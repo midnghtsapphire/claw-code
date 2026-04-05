@@ -7,6 +7,7 @@
 mod bash;
 pub mod bash_validation;
 mod bootstrap;
+pub mod branch_lock;
 mod compact;
 mod config;
 mod conversation;
@@ -44,6 +45,9 @@ pub mod worker_boot;
 
 pub use bash::{execute_bash, BashCommandInput, BashCommandOutput};
 pub use bootstrap::{BootstrapPhase, BootstrapPlan};
+pub use branch_lock::{
+    BranchAcquireOutcome, BranchCollisionEvent, BranchLockEntry, BranchLockRegistry,
+};
 pub use compact::{
     compact_session, estimate_session_tokens, format_compact_summary,
     get_compact_continuation_message, should_compact, CompactionConfig, CompactionResult,
