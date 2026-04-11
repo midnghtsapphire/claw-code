@@ -201,6 +201,20 @@
 
 ---
 
+### Sprint 9 — Clawability Runtime Hardening (Weeks 19–20)
+**Theme:** Close open P0 backlog items; calibrate estimator accuracy
+
+| Story | Assignee | Points |
+|-------|----------|--------|
+| E9-1 Calibrate token estimator — chars/count + per-message overhead + structured divisor | Executor | 3 |
+| E9-2 Confirm `doctor` top-level CLI (verified complete) | — | 0 |
+| E9-3 Confirm status/sandbox/skills/mcp JSON (verified complete) | — | 0 |
+| E9-4 Confirm CI workspace coverage (verified complete) | — | 0 |
+| E9-5 Sprint 9 retrospective + docs update | All | 5 |
+| **Sprint Total** | | **8** |
+
+---
+
 ## Velocity Assumptions
 - 10–16 story points per 2-week sprint for a claw agent team
 - Human PO spends ~2 hrs/sprint on direction + review

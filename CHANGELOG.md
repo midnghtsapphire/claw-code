@@ -10,6 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `rust/crates/runtime/src/compact.rs` — calibrated token estimator (E9-1): replaced `text.len() / 4` byte heuristic with `text.chars().count() / TEXT_CHARS_PER_TOKEN` (Unicode-correct); added `MESSAGE_OVERHEAD_TOKENS = 4` per-message structural overhead; added `STRUCTURED_CHARS_PER_TOKEN = 3` divisor for tool names and JSON payloads (denser BPE encoding); all 13 compaction tests pass unchanged
+- `docs/claw-code/RETROSPECTIVE.md` — Sprint 9 close-out retrospective: velocity summary, acceptance review, what-went-well, improvement areas, docs audit, Definition-of-Done audit, Sprint 10 action items (E9-5)
+- `docs/claw-code/SCRUM_PROJECT_PLAN.md` — Sprint 9 entry added: E9-1 through E9-5, confirmed completions for E9-2/E9-3/E9-4 (E9-5)
+
+---
+
+## [Unreleased — Sprint 8]
+
+### Added
 - `rust/crates/runtime/src/swarm_state.rs` — `SwarmStateStore`: atomic save/load of combined `BranchLockRegistry` + `CommitProvenanceRegistry` state to `.claw/swarm-state.json`; `BranchLockRegistry::snapshot()`/`restore_from_snapshot()` (E8-1)
 - `rust/crates/runtime/src/commit_provenance.rs` — `parse_git_push_output`, `record_push_from_git_output`, `GitPushRefUpdate`: parse `git push` stderr ref-update lines and auto-populate provenance registry; forced-push detects superseded SHA (E8-2)
 - `rust/crates/runtime/tests/swarm_e2e.rs` — 12 end-to-end swarm simulation tests: two workers competing for one branch (collision + provenance), three-worker race, independent branches, save/restore round-trips, lineage preservation, forced-push superseded-by, git push output integration (E8-3)
