@@ -31,6 +31,10 @@ pub struct CompactionResult {
 }
 
 /// Roughly estimates the token footprint of the current session transcript.
+///
+/// Each message contributes content-derived tokens plus a fixed
+/// [`MESSAGE_OVERHEAD_TOKENS`] overhead that accounts for role headers and
+/// message-delimiter tokens emitted by most BPE tokenizers.
 #[must_use]
 pub fn estimate_session_tokens(session: &Session) -> usize {
     session.messages.iter().map(estimate_message_tokens).sum()
@@ -396,18 +400,41 @@ fn truncate_summary(content: &str, max_chars: usize) -> String {
     truncated
 }
 
+/// Fixed token overhead added per message to account for role-header and
+/// message-delimiter tokens emitted by BPE tokenizers (e.g. `<|im_start|>`,
+/// role tag, and `<|im_end|>` cost roughly 3–5 tokens per turn).
+const MESSAGE_OVERHEAD_TOKENS: usize = 4;
+
+/// Characters-per-token divisor for prose / natural-language content.
+/// Claude's cl100k-based tokenizer averages ~4 characters per token for
+/// English text, so this divisor gives a conservative (slightly over-)
+/// estimate to avoid missing compaction triggers.
+const TEXT_CHARS_PER_TOKEN: usize = 4;
+
+/// Characters-per-token divisor for structured content such as tool names and
+/// JSON payloads.  Identifiers, punctuation, and JSON syntax characters are
+/// typically split into shorter BPE sub-words, yielding ~3 characters per
+/// token on average.
+const STRUCTURED_CHARS_PER_TOKEN: usize = 3;
+
 fn estimate_message_tokens(message: &ConversationMessage) -> usize {
-    message
+    let content_tokens: usize = message
         .blocks
         .iter()
         .map(|block| match block {
-            ContentBlock::Text { text } => text.len() / 4 + 1,
-            ContentBlock::ToolUse { name, input, .. } => (name.len() + input.len()) / 4 + 1,
+            ContentBlock::Text { text } => text.chars().count() / TEXT_CHARS_PER_TOKEN + 1,
+            ContentBlock::ToolUse { name, input, .. } => {
+                (name.chars().count() + input.chars().count()) / STRUCTURED_CHARS_PER_TOKEN + 1
+            }
             ContentBlock::ToolResult {
                 tool_name, output, ..
-            } => (tool_name.len() + output.len()) / 4 + 1,
+            } => {
+                (tool_name.chars().count() + output.chars().count()) / STRUCTURED_CHARS_PER_TOKEN
+                    + 1
+            }
         })
-        .sum()
+        .sum();
+    content_tokens + MESSAGE_OVERHEAD_TOKENS
 }
 
 fn extract_tag_block(content: &str, tag: &str) -> Option<String> {

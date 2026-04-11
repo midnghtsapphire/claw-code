@@ -42,8 +42,12 @@ use runtime::{
 // ──────────────────────────────────────────────────────────────────────────────
 
 /// Build a session where every message is a user text of `words` repeated
-/// words.  Each word is 4 characters + space ≈ 1 token per word (rough heuristic
-/// matches the compact crate's own estimator which counts characters / 4).
+/// words.  Each word is 5 characters ("word ").  The estimator formula is
+/// `chars / TEXT_CHARS_PER_TOKEN + 1` per content block, plus
+/// `MESSAGE_OVERHEAD_TOKENS` per message, so the per-message token count for
+/// `words_each` words is `(5 * words_each) / 4 + 1 + 4`.  Thresholds in
+/// these tests are derived dynamically via `estimate_session_tokens` so they
+/// adapt to the exact estimator formula.
 fn session_with_messages(count: usize, words_each: usize) -> Session {
     let text = "word ".repeat(words_each);
     let mut session = Session::new();
